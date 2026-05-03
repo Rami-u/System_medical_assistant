@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 
   # Diabetes Project
 
@@ -9,3 +10,7 @@
 
   Run `npm run dev` to start the development server.
   
+=======
+# medical_assistant_system
+A complete system for detecting diabetes and brain cancer using patient data and AI models. It helps analyze health information, provide predictions, and support better medical decisions.
+>>>>>>> origin/main
