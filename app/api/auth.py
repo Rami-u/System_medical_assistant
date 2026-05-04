@@ -1,73 +1,36 @@
-from fastapi import APIRouter, Depends, status
+"""Auth router — thin controller delegating to AuthService."""
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.core.database import get_db
+
+from app.core.dependencies import get_current_user
+from app.models.database import get_db
+from app.models.user import User
 from app.schemas.auth_schemas import (
-    UserRegister, RegisterResponse, UserResponse,
-    TokenResponse, RefreshRequest, UserLogin
+    RefreshRequest, RegisterResponse, TokenResponse, UserLogin, UserRegister, UserResponse,
 )
-from app.services.auth_service import AuthService
+from app.services.auth_service import (
+    get_current_user_profile, login_user, refresh_access_token, register_user,
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post(
-    "/register",
-    response_model=RegisterResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Register a new user (patient or doctor)",
-)
-def register(data: UserRegister, db: Session = Depends(get_db)):
-    """
-    Registration flow:
-    1. Validate input (Pydantic does this before we even enter this function)
-    2. Delegate business logic to AuthService
-    3. Return safe user info
-    """
-    new_user = AuthService.register_user(data, db)
-    return RegisterResponse(
-        message=f"Account created successfully. Welcome, {new_user.full_name}!",
-        user=UserResponse.model_validate(new_user),
-    )
+@router.post("/register", response_model=RegisterResponse, status_code=201, summary="Register a new account")
+def register(data: UserRegister, db: Session = Depends(get_db)) -> dict:
+    return register_user(data, db)
 
 
-@router.post(
-    "/login",
-    response_model=TokenResponse,
-    summary="Login and receive access + refresh tokens",
-)
-def login(data: UserLogin, db: Session = Depends(get_db)):
-    """
-    Login flow:
-    1. Delegate to AuthService for checking credentials
-    2. Return generated tokens
-    """
-    tokens = AuthService.login_user(data, db)
-    return TokenResponse(**tokens)
+@router.post("/login", response_model=TokenResponse, summary="Login and receive JWT tokens")
+def login(data: UserLogin, db: Session = Depends(get_db)) -> TokenResponse:
+    return login_user(data, db)
 
 
-@router.post(
-    "/refresh",
-    response_model=TokenResponse,
-    summary="Exchange refresh token for a new access token",
-)
-def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
-    """
-    Refresh flow:
-    1. Delegate to AuthService to validate old token and issue new
-    2. Return new tokens
-    """
-    tokens = AuthService.refresh_token(data, db)
-    return TokenResponse(**tokens)
+@router.post("/refresh", response_model=TokenResponse, summary="Refresh access token")
+def refresh(data: RefreshRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    return refresh_access_token(data.refresh_token, db)
 
 
-@router.post(
-    "/logout",
-    status_code=status.HTTP_200_OK,
-    summary="Logout (client-side token deletion)",
-)
-def logout():
-    """
-    For stateless JWT auth, 'logout' means instructing the client
-    to delete its stored tokens. The server has no session to destroy.
-    """
-    return {"message": "Logged out. Please delete your tokens from client storage."}
+@router.get("/me", response_model=UserResponse, summary="Get current user info")
+def me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> UserResponse:
+    return get_current_user_profile(current_user, db)

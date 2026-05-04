@@ -1,92 +1,80 @@
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
-from app.core.database import get_db
-from app.core.security import decode_token
+"""
+Core FastAPI dependencies — JWT auth and role guards.
 
-# tokenUrl points to the login endpoint.
-# FastAPI uses this to render the "Authorize" button in Swagger /docs.
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+All queries use SQLAlchemy 2.0 select() syntax with selectinload
+to prevent N+1 on roles.
+"""
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.core.security import decode_token
+from app.models.database import get_db
+from app.models.user import User
+
+bearer_scheme = HTTPBearer()
+
+
+def get_user_role(user: User) -> str:
+    """Read role from the user_roles relation (eagerly loaded)."""
+    if user.roles:
+        return user.roles[0].role_name
+    return ""
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
-):
-    """
-    Core auth dependency — used by EVERY protected endpoint.
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    """Validates the Bearer JWT and returns the authenticated User."""
+    token = credentials.credentials
+    payload = decode_token(token)
 
-    Flow:
-    1. FastAPI extracts Bearer token from Authorization header
-    2. decode_token() validates signature + expiry + type
-    3. We look up the user in the database (critical security step)
-    4. If user was deleted after token was issued — they're rejected
-    5. Return the User ORM object to the route function
-
-    The database lookup (step 3/4) is what the GitHub repo was missing.
-    Without it, a deleted user's valid token would still grant access.
-    """
-    # Decode and validate the access token
-    token_data = decode_token(token, expected_type="access")
-
-    # Import inside function to prevent circular imports
-    # (models import Base from database, dependencies imports from models)
-    from app.models.users import User
-
-    # Verify the user still exists in the database
-    user = db.query(User).filter(User.id == token_data["user_id"]).first()
-
-    if user is None:
+    if payload is None or payload.get("type") != "access":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account no longer exists",
+            detail="Invalid or expired access token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing subject claim",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    stmt = select(User).where(User.id == int(user_id))
+    user = db.execute(stmt).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
-def get_current_doctor(
-    current_user = Depends(get_current_user)
-):
-    """
-    Dependency for doctor-only endpoints.
-    Builds on get_current_user — first validates token, then checks role.
-
-    Usage: doctor = Depends(get_current_doctor)
-    Effect: Raises HTTP 403 if user.role != 'doctor'
-
-    Example endpoints that need this:
-    - POST /clinical-notes/
-    - GET /clinical-notes/{patient_id}
-    - GET /patients/ (list of assigned patients)
-    """
-    if current_user.role != "doctor":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This endpoint requires doctor role",
-        )
+def get_current_doctor(current_user: User = Depends(get_current_user)) -> User:
+    """Raises 403 if the user is not a doctor."""
+    if get_user_role(current_user) != "doctor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor role required")
     return current_user
 
 
-def get_current_patient(
-    current_user = Depends(get_current_user)
-):
-    """
-    Dependency for patient-only endpoints.
-    Builds on get_current_user — first validates token, then checks role.
+def get_current_patient(current_user: User = Depends(get_current_user)) -> User:
+    """Raises 403 if the user is not a patient."""
+    if get_user_role(current_user) != "patient":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Patient role required")
+    return current_user
 
-    Usage: patient = Depends(get_current_patient)
-    Effect: Raises HTTP 403 if user.role != 'patient'
 
-    Example endpoints that need this:
-    - POST /glucose-readings/
-    - POST /meal-logs/
-    - GET /alerts/my
-    """
-    if current_user.role != "patient":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This endpoint requires patient role",
-        )
+def get_current_patient_or_doctor(current_user: User = Depends(get_current_user)) -> User:
+    """Allows both patients and doctors — used for shared endpoints."""
+    role = get_user_role(current_user)
+    if role not in ("patient", "doctor"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Valid role required")
     return current_user

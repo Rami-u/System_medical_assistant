@@ -1,28 +1,33 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date
 
 
-#  REQUEST SCHEMAS (what the client sends TO us)
+# ──────────────────────────────────────────────
+# REQUEST SCHEMAS  (client → server)
+# ──────────────────────────────────────────────
 
 class UserRegister(BaseModel):
     """
     Fields required to create a new account.
-    Role is NOT user-controlled — it must be passed
-    but is validated against allowed values only.
-    Default is 'patient' for safety.
+
+    ✅ Changed: age → dob (date of birth) to match the Patient model.
+    ✅ full_name is here because it lives on Patient/Doctor, not User.
+    Role defaults to 'patient' for safety; validated against allowed values.
     """
     full_name: str
-    email: EmailStr            # validates email format automatically
+    email: EmailStr
     password: str
-    role: str = "patient"      # default: patient
-    # Optional: patient-specific fields
-    age: Optional[int] = None
+    role: str = "patient"
+
+    # Patient-specific (optional)
+    dob: Optional[date] = None               # ✅ was: age: Optional[int]
     gender: Optional[str] = None
     height_cm: Optional[float] = None
     weight_kg: Optional[float] = None
     diabetes_type_id: Optional[int] = None
-    # Optional: doctor-specific fields
+
+    # Doctor-specific (optional)
     specialization_id: Optional[int] = None
 
     @field_validator("password")
@@ -36,7 +41,7 @@ class UserRegister(BaseModel):
     @field_validator("role")
     @classmethod
     def role_allowed(cls, v: str) -> str:
-        """Only 'patient' or 'doctor' are valid roles. Anything else is rejected."""
+        """Only 'patient' or 'doctor' are valid roles."""
         if v not in ("patient", "doctor"):
             raise ValueError("Role must be 'patient' or 'doctor'")
         return v
@@ -48,19 +53,24 @@ class UserLogin(BaseModel):
     password: str
 
 
-#  RESPONSE SCHEMAS (what we send BACK to client)
+# ──────────────────────────────────────────────
+# RESPONSE SCHEMAS  (server → client)
+# ──────────────────────────────────────────────
 
 class UserResponse(BaseModel):
     """
-    Safe user representation — NEVER includes password_hash.
-    from_attributes=True lets Pydantic read SQLAlchemy model objects.
+    Safe user representation — NEVER exposes password_hash.
+
+    ✅ Fixed: full_name and role are NOT columns on User —
+    they come from the Patient/Doctor profile and user_roles table.
+    We return them as computed fields populated by auth_service.
     """
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    full_name: str
     email: str
-    role: str
+    full_name: str            # populated from Patient.full_name or Doctor.full_name
+    role: str                 # populated from user.roles[0].role_name
     created_at: datetime
 
 
@@ -75,18 +85,18 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    expires_in: int          # seconds until access token expires
+    expires_in: int           # seconds until access token expires
 
 
 class RefreshRequest(BaseModel):
-    """Body for the refresh token endpoint."""
+    """Body for the /auth/refresh endpoint."""
     refresh_token: str
 
 
 class TokenData(BaseModel):
     """
     Decoded JWT payload model.
-    'sub' is the standard JWT claim for the subject (our user_id).
+    'sub' holds user_id as string (JWT standard).
     """
     user_id: Optional[int] = None
     role: Optional[str] = None
