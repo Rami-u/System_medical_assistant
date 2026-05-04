@@ -1,17 +1,30 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+"""
+Diacheck — Centralized application settings.
+
+Reads all config from environment variables / .env file.
+"""
+
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-class Settings(BaseSettings):
+class Settings:
+    """
+    Reads config from .env using plain os.getenv.
+    All settings are centralised here for easy reference.
+    """
 
-    DATABASE_URL: str
-    SECRET_KEY: str
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./diacheck.db")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me")
+    ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
+        os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15")
+    )
+    REFRESH_TOKEN_EXPIRE_DAYS: int = int(
+        os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7")
     )
 
 

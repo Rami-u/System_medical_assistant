@@ -1,25 +1,23 @@
-from sqlalchemy import Column, Integer, String
-from sqlalchemy.orm import relationship
-from app.core.database import Base
+from sqlalchemy import Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from .database import Base
 
 
-class DiabetesType(Base):
-    """lk_diabetes_types — standardized diabetes classifications"""
+class LkDiabetesType(Base):
     __tablename__ = "lk_diabetes_types"
 
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    type_name = Column(String(50), nullable=False, unique=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    type_name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
 
-    # Relationship: one type → many patients
-    patients = relationship("Patient", back_populates="diabetes_type")
+    # relationships
+    patients: Mapped[list["Patient"]] = relationship(back_populates="diabetes_type")
 
 
-class Specialization(Base):
-    """lk_specializations — standardized doctor specializations"""
+class LkSpecialization(Base):
     __tablename__ = "lk_specializations"
 
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    spec_name = Column(String(100), nullable=False, unique=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    spec_name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
 
-    # Relationship: one specialization → many doctors
-    doctors = relationship("Doctor", back_populates="specialization")
+    # relationships
+    doctors: Mapped[list["Doctor"]] = relationship(back_populates="specialization")
