@@ -7,18 +7,25 @@ from app.core.dependencies import get_current_user
 from app.models.database import get_db
 from app.models.user import User
 from app.schemas.auth_schemas import (
-    RefreshRequest, RegisterResponse, TokenResponse, UserLogin, UserRegister, UserResponse,
+    DoctorRegister, PatientRegister, RefreshRequest, 
+    RegisterResponse, TokenResponse, UserLogin, UserResponse,
 )
 from app.services.auth_service import (
-    get_current_user_profile, login_user, refresh_access_token, register_user,
+    get_current_user_profile, login_user, refresh_access_token, 
+    register_doctor, register_patient,
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/register", response_model=RegisterResponse, status_code=201, summary="Register a new account")
-def register(data: UserRegister, db: Session = Depends(get_db)) -> dict:
-    return register_user(data, db)
+@router.post("/register/patient", response_model=RegisterResponse, status_code=201, summary="Register a new patient account")
+def register_patient_endpoint(data: PatientRegister, db: Session = Depends(get_db)) -> dict:
+    return register_patient(data, db)
+
+
+@router.post("/register/doctor", response_model=RegisterResponse, status_code=201, summary="Register a new doctor account")
+def register_doctor_endpoint(data: DoctorRegister, db: Session = Depends(get_db)) -> dict:
+    return register_doctor(data, db)
 
 
 @router.post("/login", response_model=TokenResponse, summary="Login and receive JWT tokens")

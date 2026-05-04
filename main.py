@@ -23,11 +23,12 @@ from app.models import (  # noqa: F401
 # Routers
 from app.api.auth import router as auth_router
 from app.api.glucose import router as glucose_router
-from app.api.meals import router as meals_router
-from app.api.patients import router as patients_router
+from app.api.meal import router as meal_router
+from app.api.patient import router as patient_router
 from app.api.alerts import router as alerts_router
 from app.api.clinical import router as clinical_router
 from app.api.ai_chat import router as ai_chat_router
+from app.api.screening import router as screening_router
 
 
 def _seed_lookup_data() -> None:
@@ -90,11 +91,12 @@ app.add_middleware(
 # Register routers
 app.include_router(auth_router)
 app.include_router(glucose_router)
-app.include_router(meals_router)
-app.include_router(patients_router)
+app.include_router(meal_router)
+app.include_router(patient_router)
 app.include_router(alerts_router)
 app.include_router(clinical_router)
 app.include_router(ai_chat_router)
+app.include_router(screening_router)
 
 
 @app.get("/", tags=["Health"])

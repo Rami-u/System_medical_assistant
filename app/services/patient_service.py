@@ -92,46 +92,41 @@ def update_patient_profile(
 def get_patient_dashboard(user_id: int, db: Session) -> DashboardResponse:
     """
     Aggregated stats for the patient dashboard:
-    - Latest glucose reading
-    - 7-day average glucose
-    - 7-day meal count
-    - Unread alerts count
+    - Today's average glucose
+    - Last meal time
+    - Active alerts count
     - Latest screening risk level
     """
     patient = _get_patient_or_404(user_id, db)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    
+    # Calculate start of today in UTC
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Latest glucose
-    latest_gl_stmt = (
-        select(GlucoseLog)
-        .where(GlucoseLog.patient_id == patient.id)
-        .order_by(GlucoseLog.recorded_at.desc())
-        .limit(1)
-    )
-    latest_gl = db.execute(latest_gl_stmt).scalar_one_or_none()
-
-    # 7-day average glucose
+    # 1. Today's average glucose
     avg_stmt = select(func.avg(GlucoseLog.glucose_value)).where(
         GlucoseLog.patient_id == patient.id,
-        GlucoseLog.recorded_at >= cutoff,
+        GlucoseLog.recorded_at >= today_start,
     )
-    avg_glucose = db.execute(avg_stmt).scalar()
+    today_avg = db.execute(avg_stmt).scalar()
 
-    # 7-day meal count
-    meal_count_stmt = select(func.count(MealLog.id)).where(
-        MealLog.patient_id == patient.id,
-        MealLog.meal_time >= cutoff,
+    # 2. Last meal time
+    meal_stmt = (
+        select(MealLog.meal_time)
+        .where(MealLog.patient_id == patient.id)
+        .order_by(MealLog.meal_time.desc())
+        .limit(1)
     )
-    meal_count = db.execute(meal_count_stmt).scalar() or 0
+    last_meal_time = db.execute(meal_stmt).scalar_one_or_none()
 
-    # Unread alerts
+    # 3. Active alerts count
     alert_stmt = select(func.count(Alert.id)).where(
         Alert.patient_id == patient.id,
-        Alert.is_read == False,  # noqa: E712
+        Alert.is_read == False,
     )
-    unread_alerts = db.execute(alert_stmt).scalar() or 0
+    active_alerts = db.execute(alert_stmt).scalar() or 0
 
-    # Latest screening risk level
+    # 4. Latest screening risk level
     risk_stmt = (
         select(Screening.risk_level)
         .where(Screening.patient_id == patient.id)
@@ -141,10 +136,41 @@ def get_patient_dashboard(user_id: int, db: Session) -> DashboardResponse:
     risk_level = db.execute(risk_stmt).scalar_one_or_none()
 
     return DashboardResponse(
-        latest_glucose=float(latest_gl.glucose_value) if latest_gl else None,
-        latest_glucose_type=latest_gl.reading_type if latest_gl else None,
-        avg_glucose_7d=round(float(avg_glucose), 1) if avg_glucose else None,
-        total_meals_7d=meal_count,
-        unread_alerts=unread_alerts,
+        today_avg_glucose=round(float(today_avg), 1) if today_avg else None,
+        last_meal_time=last_meal_time,
+        active_alerts=active_alerts,
         risk_level=risk_level,
     )
+
+
+# ──────────────────────────────────────────────
+# Stats (Weekly Chart Data)
+# ──────────────────────────────────────────────
+def get_patient_stats(user_id: int, db: Session) -> dict:
+    """
+    Generate weekly chart data (e.g., average glucose per day).
+    """
+    patient = _get_patient_or_404(user_id, db)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+
+    # Using SQLite's date() function for grouping
+    stmt = (
+        select(
+            func.date(GlucoseLog.recorded_at).label("day"),
+            func.avg(GlucoseLog.glucose_value).label("avg_glucose")
+        )
+        .where(
+            GlucoseLog.patient_id == patient.id,
+            GlucoseLog.recorded_at >= cutoff
+        )
+        .group_by("day")
+        .order_by("day")
+    )
+    rows = db.execute(stmt).all()
+
+    return {
+        "weekly_glucose": [
+            {"date": str(r.day), "average": round(float(r.avg_glucose), 1)} 
+            for r in rows
+        ]
+    }

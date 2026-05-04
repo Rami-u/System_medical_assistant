@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_doctor, get_current_patient, get_current_patient_or_doctor, get_user_role
+from app.core.dependencies import get_current_doctor, get_current_patient_or_doctor
 from app.models.database import get_db
 from app.models.user import User
 from app.schemas.clinical_schemas import ClinicalNoteCreate, ClinicalNoteResponse
@@ -23,8 +23,10 @@ def list_notes(
     skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
     current_user: User = Depends(get_current_patient_or_doctor), db: Session = Depends(get_db),
 ) -> list[ClinicalNoteResponse]:
-    role = get_user_role(current_user)
-    if role == "doctor":
+    # Check if user has the doctor role
+    is_doctor = any(r.role_name == "doctor" for r in current_user.roles)
+    
+    if is_doctor:
         if patient_id is None:
             from fastapi import HTTPException, status
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="patient_id is required for doctors")

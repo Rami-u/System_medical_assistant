@@ -10,12 +10,22 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+import json
+import os
+import google.generativeai as genai
+from google.api_core.exceptions import GoogleAPIError
+
 from app.models.ai_conversation import AiConversation, AiMessage
 from app.models.patient_doctor import Patient
 from app.schemas.ai_schemas import (
     AiChatRequest, AiConversationCreate, AiConversationListItem,
     AiConversationResponse, AiMessageResponse,
 )
+
+# Configure Gemini
+api_key = os.getenv("GEMINI_API_KEY", "dummy_key")
+genai.configure(api_key=api_key)
+
 
 
 def _resolve_patient_id(user_id: int, db: Session) -> int:
@@ -106,3 +116,86 @@ def get_conversation_detail(conversation_id: int, user_id: int, db: Session) -> 
     if convo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     return AiConversationResponse.model_validate(convo)
+
+
+# ──────────────────────────────────────────────
+# Phase 4: Meal & Screening AI Integrations
+# ──────────────────────────────────────────────
+
+def analyze_meal_image(image_bytes: bytes, mime_type: str) -> dict:
+    """
+    Send an image to Gemini Vision to detect food items.
+    Enforces a strict JSON output schema.
+    """
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    prompt = (
+        "Analyze this image of a meal and list the food items detected. "
+        "Return strictly this JSON structure: "
+        '{"items": [{"food_name": "string", "quantity_desc": "string", "confidence_pct": 0.0, "carbs_g": 0.0, "protein_g": 0.0, "fat_g": 0.0, "calories": 0}]}'
+    )
+    
+    try:
+        response = model.generate_content([
+            prompt, 
+            {"mime_type": mime_type, "data": image_bytes}
+        ])
+        
+        # Clean up possible markdown wrappers
+        text = response.text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+            
+        return json.loads(text.strip())
+    except GoogleAPIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI service unavailable: {str(e)}"
+        )
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="AI returned invalid JSON format"
+        )
+
+
+def predict_screening_risk(answers_text: str) -> dict:
+    """
+    Send screening answers to Gemini to predict diabetes risk.
+    """
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    prompt = (
+        "Based on the following patient screening answers, assess the diabetes risk level. "
+        "The answers are: " + answers_text + "\n\n"
+        "Return strictly this JSON structure: "
+        '{"risk_level": "Low" | "Medium" | "High", "confidence_pct": 0.0, "notes": "Brief explanation"}'
+    )
+    
+    try:
+        response = model.generate_content(prompt)
+        
+        # Clean up possible markdown wrappers
+        text = response.text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+            
+        return json.loads(text.strip())
+    except GoogleAPIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI service unavailable: {str(e)}"
+        )
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="AI returned invalid JSON format"
+        )

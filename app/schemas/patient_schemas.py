@@ -42,9 +42,18 @@ class PatientProfileUpdate(BaseModel):
 class DashboardResponse(BaseModel):
     """Aggregated stats for the patient dashboard."""
 
-    latest_glucose: Optional[float] = None
-    latest_glucose_type: Optional[str] = None
-    avg_glucose_7d: Optional[float] = None
-    total_meals_7d: int = 0
-    unread_alerts: int = 0
+    today_avg_glucose: Optional[float] = None
+    last_meal_time: Optional[datetime] = None
+    active_alerts: int = 0
     risk_level: Optional[str] = None
+
+
+class DailyGlucoseStat(BaseModel):
+    date: str
+    average: float
+
+
+class WeeklyStatsResponse(BaseModel):
+    """Weekly chart data for patient stats."""
+    weekly_glucose: list[DailyGlucoseStat]
+

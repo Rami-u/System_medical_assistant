@@ -41,41 +41,59 @@ def _resolve_patient_id(user_id: int, db: Session) -> int:
     return patient_id
 
 
-def _maybe_create_alert(
-    patient_id: int, glucose_value: float, reading_type: str, db: Session
+from fastapi import BackgroundTasks
+
+def _create_alert_background(
+    patient_id: int, glucose_value: float, reading_type: str, 
+    min_gl: float, max_gl: float
 ) -> None:
-    """Create an alert if the glucose value is critically abnormal."""
-    if glucose_value <= _CRITICAL_LOW:
-        alert = Alert(
-            patient_id=patient_id,
-            alert_type="glucose_critical_low",
-            severity="critical",
-            message=(
-                f"Critical low glucose: {glucose_value} mg/dL "
-                f"({reading_type}). Seek immediate attention."
-            ),
-        )
-        db.add(alert)
-    elif glucose_value >= _CRITICAL_HIGH:
-        alert = Alert(
-            patient_id=patient_id,
-            alert_type="glucose_critical_high",
-            severity="critical",
-            message=(
-                f"Critical high glucose: {glucose_value} mg/dL "
-                f"({reading_type}). Contact your doctor."
-            ),
-        )
-        db.add(alert)
+    """Background task to insert an alert if out of bounds."""
+    from app.models.database import SessionLocal
+    db = SessionLocal()
+    try:
+        alert_type = None
+        severity = "warning"
+        message = ""
+
+        # Check critical first
+        if glucose_value <= _CRITICAL_LOW:
+            alert_type = "glucose_critical_low"
+            severity = "critical"
+            message = f"Critical low glucose: {glucose_value} mg/dL ({reading_type}). Seek immediate attention."
+        elif glucose_value >= _CRITICAL_HIGH:
+            alert_type = "glucose_critical_high"
+            severity = "critical"
+            message = f"Critical high glucose: {glucose_value} mg/dL ({reading_type}). Contact your doctor."
+        # Then check preference bounds
+        elif glucose_value < min_gl:
+            alert_type = "glucose_low"
+            severity = "warning"
+            message = f"Low glucose: {glucose_value} mg/dL ({reading_type}). Below your target of {min_gl} mg/dL."
+        elif glucose_value > max_gl:
+            alert_type = "glucose_high"
+            severity = "warning"
+            message = f"High glucose: {glucose_value} mg/dL ({reading_type}). Above your target of {max_gl} mg/dL."
+
+        if alert_type:
+            alert = Alert(
+                patient_id=patient_id,
+                alert_type=alert_type,
+                severity=severity,
+                message=message,
+            )
+            db.add(alert)
+            db.commit()
+    finally:
+        db.close()
 
 
 # ──────────────────────────────────────────────
 # Create
 # ──────────────────────────────────────────────
 def create_glucose_log(
-    data: GlucoseLogCreate, user_id: int, db: Session
+    data: GlucoseLogCreate, user_id: int, db: Session, background_tasks: BackgroundTasks
 ) -> GlucoseLogResponse:
-    """Insert a glucose reading and auto-alert if critical."""
+    """Insert a glucose reading and trigger background auto-alert if out of bounds."""
     patient_id = _resolve_patient_id(user_id, db)
 
     log = GlucoseLog(
@@ -86,11 +104,25 @@ def create_glucose_log(
         notes=data.notes,
     )
     db.add(log)
-
-    _maybe_create_alert(patient_id, data.glucose_value, data.reading_type, db)
-
     db.commit()
     db.refresh(log)
+
+    # Fetch preferences to check bounds
+    pref_stmt = select(HealthPreferences).where(HealthPreferences.patient_id == patient_id)
+    prefs = db.execute(pref_stmt).scalar_one_or_none()
+    min_gl = float(prefs.min_glucose) if prefs else _DEFAULT_MIN
+    max_gl = float(prefs.max_glucose) if prefs else _DEFAULT_MAX
+
+    if (data.glucose_value < min_gl) or (data.glucose_value > max_gl):
+        background_tasks.add_task(
+            _create_alert_background,
+            patient_id,
+            data.glucose_value,
+            data.reading_type,
+            min_gl,
+            max_gl
+        )
+
     return GlucoseLogResponse.model_validate(log)
 
 

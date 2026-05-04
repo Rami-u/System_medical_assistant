@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_patient
 from app.models.database import get_db
 from app.models.user import User
-from app.schemas.patient_schemas import DashboardResponse, PatientProfileResponse, PatientProfileUpdate
-from app.services.patient_service import get_patient_dashboard, get_patient_profile, update_patient_profile
+from app.schemas.patient_schemas import DashboardResponse, PatientProfileResponse, PatientProfileUpdate, WeeklyStatsResponse
+from app.services.patient_service import get_patient_dashboard, get_patient_profile, get_patient_stats, update_patient_profile
 
-router = APIRouter(prefix="/patients", tags=["Patients"])
+router = APIRouter(prefix="/patient", tags=["Patients"])
 
 
 @router.get("/profile", response_model=PatientProfileResponse, summary="Get patient profile")
@@ -25,3 +25,9 @@ def update_profile(data: PatientProfileUpdate, current_user: User = Depends(get_
 @router.get("/dashboard", response_model=DashboardResponse, summary="Patient dashboard data")
 def dashboard(current_user: User = Depends(get_current_patient), db: Session = Depends(get_db)) -> DashboardResponse:
     return get_patient_dashboard(current_user.id, db)
+
+
+@router.get("/stats", response_model=WeeklyStatsResponse, summary="Patient weekly stats")
+def stats(current_user: User = Depends(get_current_patient), db: Session = Depends(get_db)) -> WeeklyStatsResponse:
+    return get_patient_stats(current_user.id, db)
+

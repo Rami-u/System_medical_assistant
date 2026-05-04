@@ -2,6 +2,7 @@
 Diacheck — Password hashing and JWT token utilities.
 
 Uses bcrypt directly (passlib is unmaintained and incompatible with bcrypt>=4.1).
+JWT tokens embed role_id (integer) — not role name — to prevent privilege escalation.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -14,10 +15,10 @@ from app.core.config import settings
 
 
 # ──────────────────────────────────────────────
-# Password hashing (direct bcrypt — no passlib)
+# Password hashing (direct bcrypt)
 # ──────────────────────────────────────────────
 def hash_password(plain_password: str) -> str:
-    """Hash a plain-text password using bcrypt."""
+    """Hash a plain-text password using bcrypt (12 rounds)."""
     password_bytes = plain_password.encode("utf-8")
     salt = bcrypt.gensalt(rounds=12)
     hashed = bcrypt.hashpw(password_bytes, salt)
@@ -33,28 +34,30 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 # ──────────────────────────────────────────────
-# JWT token creation
+# JWT token creation — uses role_id (int), not role name
 # ──────────────────────────────────────────────
-def create_access_token(user_id: int, role: str) -> str:
+def create_access_token(user_id: int, role_id: int) -> str:
+    """Create a short-lived access token (15 min default)."""
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
     payload = {
         "sub": str(user_id),
-        "role": role,
+        "role_id": role_id,
         "type": "access",
         "exp": expire,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def create_refresh_token(user_id: int, role: str) -> str:
+def create_refresh_token(user_id: int, role_id: int) -> str:
+    """Create a long-lived refresh token (7 day default)."""
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
     payload = {
         "sub": str(user_id),
-        "role": role,
+        "role_id": role_id,
         "type": "refresh",
         "exp": expire,
     }

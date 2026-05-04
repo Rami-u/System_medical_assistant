@@ -1,56 +1,74 @@
-from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
+"""
+Diacheck auth schemas — Pydantic V2 with strict field validation.
+
+Separate request schemas for patient vs doctor registration.
+All response schemas use ConfigDict(from_attributes=True).
+"""
+
+from datetime import date, datetime
 from typing import Optional
-from datetime import datetime, date
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 # ──────────────────────────────────────────────
 # REQUEST SCHEMAS  (client → server)
 # ──────────────────────────────────────────────
 
-class UserRegister(BaseModel):
-    """
-    Fields required to create a new account.
+class PatientRegister(BaseModel):
+    """Fields required to register a new patient account."""
 
-    ✅ Changed: age → dob (date of birth) to match the Patient model.
-    ✅ full_name is here because it lives on Patient/Doctor, not User.
-    Role defaults to 'patient' for safety; validated against allowed values.
-    """
-    full_name: str
+    full_name: str = Field(..., min_length=2, max_length=150)
     email: EmailStr
-    password: str
-    role: str = "patient"
+    password: str = Field(..., min_length=8, max_length=72)
 
-    # Patient-specific (optional)
-    dob: Optional[date] = None               # ✅ was: age: Optional[int]
-    gender: Optional[str] = None
-    height_cm: Optional[float] = None
-    weight_kg: Optional[float] = None
-    diabetes_type_id: Optional[int] = None
-
-    # Doctor-specific (optional)
-    specialization_id: Optional[int] = None
+    # Patient-specific
+    dob: Optional[date] = None
+    gender: Optional[str] = Field(None, pattern=r"^(male|female|other)$")
+    height_cm: Optional[float] = Field(None, gt=0, le=300)
+    weight_kg: Optional[float] = Field(None, gt=0, le=500)
+    diabetes_type_id: Optional[int] = Field(None, ge=1)
 
     @field_validator("password")
     @classmethod
     def password_strength(cls, v: str) -> str:
-        """Enforce minimum password security at the schema level."""
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters")
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
         return v
 
-    @field_validator("role")
+
+class DoctorRegister(BaseModel):
+    """Fields required to register a new doctor account."""
+
+    full_name: str = Field(..., min_length=2, max_length=150)
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=72)
+
+    specialization_id: Optional[int] = Field(None, ge=1)
+
+    @field_validator("password")
     @classmethod
-    def role_allowed(cls, v: str) -> str:
-        """Only 'patient' or 'doctor' are valid roles."""
-        if v not in ("patient", "doctor"):
-            raise ValueError("Role must be 'patient' or 'doctor'")
+    def password_strength(cls, v: str) -> str:
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
         return v
 
 
 class UserLogin(BaseModel):
     """Fields required to log in."""
+
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=1, max_length=72)
+
+
+class RefreshRequest(BaseModel):
+    """Body for the /auth/refresh endpoint."""
+
+    refresh_token: str = Field(..., min_length=1)
 
 
 # ──────────────────────────────────────────────
@@ -61,43 +79,40 @@ class UserResponse(BaseModel):
     """
     Safe user representation — NEVER exposes password_hash.
 
-    ✅ Fixed: full_name and role are NOT columns on User —
-    they come from the Patient/Doctor profile and user_roles table.
-    We return them as computed fields populated by auth_service.
+    full_name and role come from Patient/Doctor profile and user_roles.
+    role_id is included for the frontend to use in route guards.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     email: str
-    full_name: str            # populated from Patient.full_name or Doctor.full_name
-    role: str                 # populated from user.roles[0].role_name
+    full_name: str
+    role: str
+    role_id: int
     created_at: datetime
 
 
 class RegisterResponse(BaseModel):
     """Returned after successful registration."""
+
     message: str
     user: UserResponse
 
 
 class TokenResponse(BaseModel):
     """Returned after successful login."""
+
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    expires_in: int           # seconds until access token expires
-
-
-class RefreshRequest(BaseModel):
-    """Body for the /auth/refresh endpoint."""
-    refresh_token: str
+    expires_in: int = Field(..., description="Seconds until access token expires")
+    user: UserResponse
 
 
 class TokenData(BaseModel):
-    """
-    Decoded JWT payload model.
-    'sub' holds user_id as string (JWT standard).
-    """
+    """Decoded JWT payload model — for internal use."""
+
     user_id: Optional[int] = None
-    role: Optional[str] = None
+    role_id: Optional[int] = None
     token_type: Optional[str] = None
