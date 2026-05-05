@@ -4,8 +4,9 @@ import {
   Activity, ArrowRight, ArrowLeft, ChevronRight, ChevronLeft,
   User, Scale, Droplets, Users, Dumbbell, CheckCircle,
   AlertTriangle, Heart, ShieldCheck, Info, Zap, BarChart2,
-  Star, Clock, Brain, Flame,
+  Star, Clock, Brain, Flame, Loader2,
 } from "lucide-react";
+import { screeningApi } from "../../api/screeningApi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface SimpleFormData {
@@ -170,74 +171,7 @@ const advancedSteps: TestStep[] = [
   },
 ];
 
-// ─── Risk Calculators ─────────────────────────────────────────────────────────
-function calculateSimpleRisk(data: SimpleFormData) {
-  let score = 0;
-  const age = parseInt(data.age);
-  const heightM = parseFloat(data.height) / 100;
-  const bmi = parseFloat(data.weight) / (heightM * heightM);
-  const glucose = parseInt(data.fastingGlucose);
-
-  if (age >= 45) score += 2;
-  else if (age >= 35) score += 1;
-  if (bmi >= 30) score += 2;
-  else if (bmi >= 25) score += 1;
-  if (glucose >= 126) score += 3;
-  else if (glucose >= 100) score += 2;
-  if (data.familyHistory === "yes") score += 2;
-  if (data.activityLevel === "sedentary") score += 1;
-
-  return { isAtRisk: score >= 4, score, maxScore: 10, riskLevel: score >= 7 ? "High" : score >= 4 ? "Moderate" : "Low" };
-}
-
-function calculateAdvancedRisk(data: AdvancedFormData) {
-  let score = 0;
-  const age = parseInt(data.age);
-  const heightM = parseFloat(data.height) / 100;
-  const bmi = parseFloat(data.weight) / (heightM * heightM);
-  const hba1c = parseFloat(data.hba1c);
-  const glucose = parseFloat(data.bloodGlucose);
-
-  // Age
-  if (age >= 65) score += 3;
-  else if (age >= 45) score += 2;
-  else if (age >= 35) score += 1;
-
-  // BMI
-  if (bmi >= 35) score += 3;
-  else if (bmi >= 30) score += 2;
-  else if (bmi >= 25) score += 1;
-
-  // Clinical conditions
-  if (data.hypertension === "yes") score += 3;
-  if (data.heartDisease === "yes") score += 2;
-
-  // Smoking
-  if (data.smokingHistory === "current") score += 2;
-  else if (data.smokingHistory === "former") score += 1;
-
-  // HbA1c — most predictive marker
-  if (hba1c >= 6.5) score += 6;
-  else if (hba1c >= 5.7) score += 3;
-
-  // Blood glucose
-  if (glucose >= 200) score += 5;
-  else if (glucose >= 126) score += 4;
-  else if (glucose >= 100) score += 2;
-
-  const maxScore = 24;
-  let riskLevel = "Low";
-  if (score >= 14) riskLevel = "High";
-  else if (score >= 9) riskLevel = "Moderate";
-  else if (score >= 5) riskLevel = "Borderline";
-
-  return {
-    isAtRisk: score >= 9,
-    score,
-    maxScore,
-    riskLevel,
-  };
-}
+// ─── Local Risk Calculators Removed in favor of screeningApi model ─────────────────────────────────────────────────────────
 
 // ─── Color map ────────────────────────────────────────────────────────────────
 const colorMap: Record<StepColor, { bg: string; icon: string; border: string; ring: string; btn: string; progress: string }> = {
@@ -272,6 +206,7 @@ export default function DiabetesTestPage() {
   const [riskResult, setRiskResult] = useState<{
     score: number; maxScore: number; riskLevel: string;
   } | null>(null);
+  const [loadingResult, setLoadingResult] = useState(false);
 
   // ── Derived values ──────────────────────────────────────────────────────────
   const activeSteps = activeTest === "advanced" ? advancedSteps : simpleSteps;
@@ -311,17 +246,50 @@ export default function DiabetesTestPage() {
     }
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!isValid) return;
     if (isLastStep) {
-      let result;
-      if (activeTest === "advanced") {
-        result = calculateAdvancedRisk(advancedFormData);
-      } else {
-        result = calculateSimpleRisk(simpleFormData);
+      setLoadingResult(true);
+      try {
+        let answers: any[] = [];
+        if (activeTest === "advanced") {
+          answers = [
+            { question_id: 1, answer_value: advancedFormData.gender },
+            { question_id: 2, answer_numeric: parseInt(advancedFormData.age) },
+            { question_id: 3, answer_value: advancedFormData.hypertension },
+            { question_id: 4, answer_value: advancedFormData.heartDisease },
+            { question_id: 5, answer_value: advancedFormData.smokingHistory },
+            { question_id: 6, answer_value: `${advancedFormData.height},${advancedFormData.weight}` },
+            { question_id: 7, answer_numeric: parseFloat(advancedFormData.hba1c) },
+            { question_id: 8, answer_numeric: parseFloat(advancedFormData.bloodGlucose) },
+          ];
+        } else {
+          answers = [
+            { question_id: 1, answer_numeric: parseInt(simpleFormData.age) },
+            { question_id: 2, answer_value: `${simpleFormData.height},${simpleFormData.weight}` },
+            { question_id: 3, answer_numeric: parseFloat(simpleFormData.fastingGlucose) },
+            { question_id: 4, answer_value: simpleFormData.activityLevel },
+            { question_id: 5, answer_value: simpleFormData.familyHistory },
+          ];
+        }
+
+        // Must type guard activeTest since we know it's "simple" | "advanced" here
+        const res = await screeningApi.predictRisk(activeTest as "simple" | "advanced", answers);
+        
+        const riskLevelCap = res.risk_level.charAt(0).toUpperCase() + res.risk_level.slice(1);
+        
+        setRiskResult({ 
+          score: Math.round(res.risk_score || 0), 
+          maxScore: 100, 
+          riskLevel: riskLevelCap 
+        });
+        
+        setPageState((res.risk_level === "moderate" || res.risk_level === "high") ? "result-positive" : "result-negative");
+      } catch (err: any) {
+        alert("Failed to calculate risk. Please try again.");
+      } finally {
+        setLoadingResult(false);
       }
-      setRiskResult({ score: result.score, maxScore: result.maxScore, riskLevel: result.riskLevel });
-      setPageState(result.isAtRisk ? "result-positive" : "result-negative");
     } else {
       setCurrentStep((s) => s + 1);
     }
@@ -755,15 +723,18 @@ export default function DiabetesTestPage() {
                   </button>
                   <button
                     onClick={handleNext}
-                    disabled={!isValid}
+                    disabled={!isValid || loadingResult}
                     className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-sm transition-all duration-200 ${
-                      isValid
+                      isValid && !loadingResult
                         ? `bg-gradient-to-r ${btnGradient} text-white shadow-lg hover:-translate-y-0.5`
                         : "bg-slate-100 text-slate-400 cursor-not-allowed"
                     }`}
                   >
-                    {isLastStep ? "Get My Results" : "Continue"}
-                    <ChevronRight className="w-4 h-4" />
+                    {loadingResult ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>
+                    ) : (
+                      <>{isLastStep ? "Get My Results" : "Continue"} <ChevronRight className="w-4 h-4" /></>
+                    )}
                   </button>
                 </div>
 

@@ -29,6 +29,8 @@ from app.api.alerts import router as alerts_router
 from app.api.clinical import router as clinical_router
 from app.api.ai_chat import router as ai_chat_router
 from app.api.screening import router as screening_router
+from app.api.doctor import router as doctor_router
+from app.api.settings import router as settings_router
 
 
 def _seed_lookup_data() -> None:
@@ -37,6 +39,7 @@ def _seed_lookup_data() -> None:
     from app.models.database import SessionLocal
     from app.models.user import Role
     from app.models.lookup import LkDiabetesType, LkSpecialization
+    from app.models.screening import ScreeningType
 
     db = SessionLocal()
     try:
@@ -58,6 +61,12 @@ def _seed_lookup_data() -> None:
             if not exists:
                 db.add(LkSpecialization(spec_name=spec))
 
+        # Screening types (lowercase — must match request schema)
+        for stype in ("simple", "advanced"):
+            exists = db.execute(select(ScreeningType).where(ScreeningType.name == stype)).scalar_one_or_none()
+            if not exists:
+                db.add(ScreeningType(name=stype))
+
         db.commit()
     finally:
         db.close()
@@ -65,9 +74,20 @@ def _seed_lookup_data() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Create all tables and seed lookup data on startup."""
+    """Create all tables, seed lookup data, and load ML models on startup."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     Base.metadata.create_all(bind=engine)
     _seed_lookup_data()
+
+    # Load pre-trained ML models (sklearn + PyTorch)
+    try:
+        from app.services.ai_service import AIModelService
+        AIModelService.load_models()
+    except Exception as exc:
+        logger.warning("Failed to load ML models — Gemini fallback will be used: %s", exc)
+
     yield
 
 
@@ -97,6 +117,8 @@ app.include_router(alerts_router)
 app.include_router(clinical_router)
 app.include_router(ai_chat_router)
 app.include_router(screening_router)
+app.include_router(doctor_router)
+app.include_router(settings_router)
 
 
 @app.get("/", tags=["Health"])

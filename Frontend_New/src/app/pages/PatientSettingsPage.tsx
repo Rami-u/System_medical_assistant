@@ -9,6 +9,7 @@ import {
   Info, Sparkles,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { settingsApi } from "../../api/settingsApi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface PersonalInfo {
@@ -108,15 +109,15 @@ export default function PatientSettingsPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [exportingCSV, setExportingCSV] = useState(false);
-  const [exportingPDF, setExportingPDF] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({
     name: user?.name || "John Doe",
     email: user?.email || "john.doe@example.com",
     age: "42",
     weight: "175",
-    height: "5'10\"",
+    height: "170",
     assignedDoctor: "Dr. Sarah Chen, MD",
   });
 
@@ -132,6 +133,43 @@ export default function PatientSettingsPage() {
     glucoseAlerts: true,
     doctorMessages: true,
   });
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        setLoading(true);
+        const res = await settingsApi.getProfile();
+        
+        setPersonalInfo({
+          name: res.full_name || user?.name || "",
+          email: user?.email || "",
+          age: res.age ? res.age.toString() : "",
+          weight: res.weight_kg ? res.weight_kg.toString() : "",
+          height: res.height_cm ? res.height_cm.toString() : "",
+          assignedDoctor: res.doctor_name || "Not assigned",
+        });
+
+        if (res.preferences) {
+          setHealthPreferences({
+            targetGlucoseMin: res.preferences.target_glucose_min?.toString() || "70",
+            targetGlucoseMax: res.preferences.target_glucose_max?.toString() || "140",
+            dietaryRestrictions: res.preferences.dietary_restrictions || [],
+          });
+          setNotifications({
+            emailAlerts: res.preferences.email_alerts ?? true,
+            inAppAlerts: res.preferences.in_app_alerts ?? true,
+            glucoseAlerts: res.preferences.glucose_alerts ?? true,
+            doctorMessages: true,
+          });
+        }
+      } catch (err: any) {
+        setError(err.message || "Failed to load profile settings");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProfile();
+  }, [user]);
 
   const handleSignOut = () => { signOut(); navigate("/"); };
 
@@ -157,11 +195,31 @@ export default function PatientSettingsPage() {
   };
 
   const handleSave = async () => {
-    setSaving(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setSaving(false);
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+    try {
+      setSaving(true);
+      
+      await settingsApi.updateProfile({
+        full_name: personalInfo.name,
+        height_cm: personalInfo.height ? parseFloat(personalInfo.height) : undefined,
+        weight_kg: personalInfo.weight ? parseFloat(personalInfo.weight) : undefined,
+      });
+
+      await settingsApi.updatePreferences({
+        target_glucose_min: parseInt(healthPreferences.targetGlucoseMin),
+        target_glucose_max: parseInt(healthPreferences.targetGlucoseMax),
+        dietary_restrictions: healthPreferences.dietaryRestrictions,
+        email_alerts: notifications.emailAlerts,
+        in_app_alerts: notifications.inAppAlerts,
+        glucose_alerts: notifications.glucoseAlerts,
+      });
+
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to save settings");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleExportCSV = async () => {
@@ -299,6 +357,14 @@ export default function PatientSettingsPage() {
               </div>
             </div>
 
+            {loading ? (
+              <div className="flex justify-center items-center h-64">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+              </div>
+            ) : error ? (
+              <div className="flex justify-center items-center h-64 text-red-500 font-semibold">{error}</div>
+            ) : (
+            <>
             {/* ── Section 1: Personal Information ────────────────────────── */}
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
               <div className="flex items-center gap-3 mb-5 pb-4 border-b border-slate-100">
@@ -519,7 +585,8 @@ export default function PatientSettingsPage() {
                 </button>
               </div>
             </div>
-
+            </>
+            )}
           </div>
         </main>
       </div>

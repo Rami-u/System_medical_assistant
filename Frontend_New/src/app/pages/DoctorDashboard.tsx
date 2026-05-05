@@ -8,46 +8,33 @@ import {
   MessageSquare, AlertOctagon, Info, Heart,
 } from "lucide-react";
 import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
+import { doctorApi } from "../../api/doctorApi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type AlertType   = "diabetes-critical" | "diabetes-moderate";
-type AlertStatus = "unread" | "read" | "reviewed";
-
 interface PatientAlert {
-  id: string;
+  id: number;
   patientName: string;
-  patientId: string;
-  alertType: AlertType;
+  patientId: number;
+  alertType: string;
   severity: "critical" | "moderate" | "low";
   timestamp: string;
-  status: AlertStatus;
-  summary: string;
-  doctorNotes?: string;
-  reportData: {
-    glucoseData?: {
-      avgGlucose: number;
-      maxGlucose: number;
-      spikeCount: number;
-      lastReading: number;
-    };
-  };
+  is_read: boolean;
+  message: string;
 }
 
 interface PatientSummary {
-  id: string;
+  id: number;
   name: string;
+  code: string;
   initials: string;
   diagnosis: string;
-  hba1c: number;
   avgGlucose: number;
   tir: number;             // time-in-range %
   riskLevel: "high" | "moderate" | "low";
-  lastVisit: string;
-  glucoseTrend: "up" | "down" | "stable";
 }
 
 // ─── Sidebar nav ──────────────────────────────────────────────────────────────
@@ -56,80 +43,14 @@ const sidebarNav = [
   { icon: Users,           label: "Patients",  path: "/dashboard/doctor/patients", active: false },
 ];
 
-// ─── Patient Overview Data ────────────────────────────────────────────────────
-const patientSummaries: PatientSummary[] = [
-  { id: "P-2847", name: "John Anderson",   initials: "JA", diagnosis: "Type 2 Diabetes", hba1c: 8.2, avgGlucose: 156, tir: 28, riskLevel: "high",     lastVisit: "Apr 20", glucoseTrend: "up"    },
-  { id: "P-1583", name: "Michael Chen",    initials: "MC", diagnosis: "Type 2 Diabetes", hba1c: 7.4, avgGlucose: 148, tir: 60, riskLevel: "moderate", lastVisit: "Apr 25", glucoseTrend: "stable" },
-  { id: "P-2156", name: "David Kim",       initials: "DK", diagnosis: "Type 1 Diabetes", hba1c: 6.8, avgGlucose: 98,  tir: 62, riskLevel: "high",     lastVisit: "Apr 18", glucoseTrend: "down"  },
-  { id: "P-3041", name: "Emily Rodriguez", initials: "ER", diagnosis: "Type 2 Diabetes", hba1c: 7.1, avgGlucose: 132, tir: 74, riskLevel: "moderate", lastVisit: "Apr 28", glucoseTrend: "down"  },
-  { id: "P-1892", name: "Sarah Thompson",  initials: "ST", diagnosis: "Type 1 Diabetes", hba1c: 6.4, avgGlucose: 108, tir: 91, riskLevel: "low",      lastVisit: "Apr 30", glucoseTrend: "stable" },
-  { id: "P-4217", name: "Robert Martinez", initials: "RM", diagnosis: "Type 2 Diabetes", hba1c: 9.1, avgGlucose: 188, tir: 14, riskLevel: "high",     lastVisit: "Apr 15", glucoseTrend: "up"    },
-  { id: "P-3388", name: "Linda Patel",     initials: "LP", diagnosis: "Prediabetes",      hba1c: 6.1, avgGlucose: 112, tir: 84, riskLevel: "low",      lastVisit: "Apr 27", glucoseTrend: "stable" },
-];
-
-// ─── Chart Data ───────────────────────────────────────────────────────────────
-const populationTrend = [
-  { date: "Apr 26", avg: 141, min: 109, max: 195 },
-  { date: "Apr 27", avg: 143, min: 94,  max: 219 },
-  { date: "Apr 28", avg: 138, min: 81,  max: 207 },
-  { date: "Apr 29", avg: 140, min: 68,  max: 221 },
-  { date: "Apr 30", avg: 144, min: 52,  max: 248 },
-  { date: "May 1",  avg: 136, min: 78,  max: 202 },
-  { date: "May 2",  avg: 131, min: 84,  max: 193 },
-];
-
-const hba1cData = [
-  { name: "J. Anderson",  hba1c: 8.2, risk: "high"     },
-  { name: "R. Martinez",  hba1c: 9.1, risk: "high"     },
-  { name: "D. Kim",       hba1c: 6.8, risk: "high"     },
-  { name: "M. Chen",      hba1c: 7.4, risk: "moderate" },
-  { name: "E. Rodriguez", hba1c: 7.1, risk: "moderate" },
-  { name: "S. Thompson",  hba1c: 6.4, risk: "low"      },
-  { name: "L. Patel",     hba1c: 6.1, risk: "low"      },
-];
-
-const riskPieData = [
-  { name: "High Risk",  value: 3, color: "#ef4444" },
-  { name: "Moderate",   value: 2, color: "#f59e0b" },
-  { name: "Low Risk",   value: 2, color: "#10b981" },
-];
-
-// ─── Alert Mock Data ──────────────────────────────────────────────────────────
-const initialAlerts: PatientAlert[] = [
-  {
-    id: "alert-001", patientName: "John Anderson",  patientId: "P-2847",
-    alertType: "diabetes-critical", severity: "critical",
-    timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    status: "unread",
-    summary: "Critical glucose spike detected: 248 mg/dL post-meal. Patient experiencing symptoms of hyperglycemia.",
-    reportData: { glucoseData: { avgGlucose: 156, maxGlucose: 248, spikeCount: 3, lastReading: 248 } },
-  },
-  {
-    id: "alert-003", patientName: "Michael Chen",   patientId: "P-1583",
-    alertType: "diabetes-moderate", severity: "moderate",
-    timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-    status: "read",
-    summary: "Consistent elevated post-meal glucose (avg 165 mg/dL). Pattern suggests dietary adjustment needed.",
-    reportData: { glucoseData: { avgGlucose: 148, maxGlucose: 182, spikeCount: 5, lastReading: 165 } },
-  },
-  {
-    id: "alert-005", patientName: "David Kim",       patientId: "P-2156",
-    alertType: "diabetes-critical", severity: "critical",
-    timestamp: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-    status: "read",
-    summary: "Severe hypoglycemia event: 52 mg/dL. Patient reported dizziness and confusion.",
-    reportData: { glucoseData: { avgGlucose: 98, maxGlucose: 142, spikeCount: 1, lastReading: 52 } },
-  },
-];
-
 // ─── Config ───────────────────────────────────────────────────────────────────
-const riskConfig = {
+const riskConfig: Record<string, any> = {
   high:     { bg: "bg-red-50",    text: "text-red-700",    border: "border-red-200",   dot: "bg-red-500",    label: "High Risk" },
   moderate: { bg: "bg-amber-50",  text: "text-amber-700",  border: "border-amber-200", dot: "bg-amber-500",  label: "Moderate"  },
   low:      { bg: "bg-emerald-50",text: "text-emerald-700",border: "border-emerald-200",dot:"bg-emerald-500",label: "Low Risk"  },
 };
 
-const severityConfig = {
+const severityConfig: Record<string, any> = {
   critical: { bg: "bg-red-50",    text: "text-red-700",    border: "border-red-200",   dot: "bg-red-500",    label: "Critical" },
   moderate: { bg: "bg-amber-50",  text: "text-amber-700",  border: "border-amber-200", dot: "bg-amber-500",  label: "Moderate" },
   low:      { bg: "bg-emerald-50",text: "text-emerald-700",border: "border-emerald-200",dot:"bg-emerald-500",label: "Low"      },
@@ -164,16 +85,14 @@ const HbA1cTooltip = ({ active, payload, label }: any) => {
 function AlertDetailsModal({ alert, onClose, onReview }: {
   alert: PatientAlert;
   onClose: () => void;
-  onReview: (id: string, notes: string) => void;
+  onReview: (id: number) => void;
 }) {
-  const [notes,  setNotes]  = useState(alert.doctorNotes || "");
   const [saving, setSaving] = useState(false);
-  const sev = severityConfig[alert.severity];
+  const sev = severityConfig[alert.severity] || severityConfig.moderate;
 
   const handleReview = async () => {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 800));
-    onReview(alert.id, notes);
+    await onReview(alert.id);
     setSaving(false);
     onClose();
   };
@@ -190,7 +109,7 @@ function AlertDetailsModal({ alert, onClose, onReview }: {
             <div>
               <h3 className="text-slate-900" style={{ fontWeight: 700, fontSize: "1.05rem" }}>{alert.patientName}</h3>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-slate-400 text-xs">{alert.patientId}</span>
+                <span className="text-slate-400 text-xs">ID: {alert.patientId}</span>
                 <span className="text-slate-300">·</span>
                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${sev.bg} ${sev.text}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${sev.dot}`} />{sev.label}
@@ -204,53 +123,22 @@ function AlertDetailsModal({ alert, onClose, onReview }: {
         </div>
         <div className="flex-1 overflow-y-auto px-7 py-6 space-y-5">
           <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-            <p className="text-slate-700 text-sm leading-relaxed">{alert.summary}</p>
+            <p className="text-slate-700 text-sm leading-relaxed">{alert.message}</p>
             <p className="text-slate-400 text-xs mt-2 flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" />
               {new Date(alert.timestamp).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
             </p>
           </div>
-          {alert.reportData.glucoseData && (
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: "Last Reading", value: alert.reportData.glucoseData.lastReading, unit: "mg/dL", bg: "bg-blue-50 border-blue-100", val: "text-blue-900" },
-                { label: "Avg Glucose",  value: alert.reportData.glucoseData.avgGlucose,  unit: "mg/dL", bg: "bg-slate-50 border-slate-100", val: "text-slate-900" },
-                { label: "Peak Glucose", value: alert.reportData.glucoseData.maxGlucose,  unit: "mg/dL", bg: "bg-red-50 border-red-100",   val: "text-red-900" },
-                { label: "Spike Events", value: alert.reportData.glucoseData.spikeCount,  unit: "events",bg: "bg-amber-50 border-amber-100",val: "text-amber-900" },
-              ].map(({ label, value, unit, bg, val }) => (
-                <div key={label} className={`rounded-xl p-4 border ${bg}`}>
-                  <p className="text-slate-500 text-xs mb-1">{label}</p>
-                  <p className={`text-2xl ${val}`} style={{ fontWeight: 800 }}>{value}</p>
-                  <p className="text-slate-400 text-xs mt-0.5">{unit}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <MessageSquare className="w-4 h-4 text-slate-400" />
-              <h4 className="text-slate-900 text-sm" style={{ fontWeight: 700 }}>Doctor's Response</h4>
-              {alert.status === "reviewed" && <span className="text-xs text-emerald-600 font-semibold">(Sent to Patient)</span>}
-            </div>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Write your clinical assessment, recommendations, or instructions…"
-              rows={4}
-              disabled={alert.status === "reviewed"}
-              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm resize-none"
-            />
-          </div>
         </div>
         <div className="flex items-center justify-between gap-3 px-7 py-4 border-t border-slate-100 flex-shrink-0">
           <button onClick={onClose} className="px-5 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors">Close</button>
-          {alert.status !== "reviewed" && (
+          {!alert.is_read && (
             <button
               onClick={handleReview}
-              disabled={!notes.trim() || saving}
+              disabled={saving}
               className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-xl text-sm font-semibold transition-colors"
             >
-              {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Sending…</> : <><Send className="w-4 h-4" />Mark Reviewed & Send</>}
+              {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Marking Read…</> : <><CheckCircle className="w-4 h-4" />Mark Read</>}
             </button>
           )}
         </div>
@@ -264,31 +152,87 @@ export default function DoctorDashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [alerts, setAlerts] = useState<PatientAlert[]>(initialAlerts);
+  const [loading, setLoading] = useState(true);
+  
+  const [alerts, setAlerts] = useState<PatientAlert[]>([]);
+  const [dashboardData, setDashboardData] = useState<any>(null);
   const [selectedAlert, setSelectedAlert] = useState<PatientAlert | null>(null);
+
+  import("react").then(({ useEffect }) => {
+    useEffect(() => {
+      const fetchData = async () => {
+        try {
+          const [dashboardRes, alertsRes] = await Promise.all([
+            doctorApi.getDashboard(),
+            doctorApi.getAlerts()
+          ]);
+          setDashboardData(dashboardRes);
+          const formattedAlerts = alertsRes.map((a: any) => ({
+            id: a.alert_id,
+            patientName: a.patient_name,
+            patientId: a.patient_id,
+            alertType: a.alert_type,
+            severity: a.severity,
+            timestamp: a.created_at,
+            is_read: a.is_read,
+            message: a.message
+          }));
+          setAlerts(formattedAlerts);
+        } catch (err) {
+          console.error("Failed to load dashboard data", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchData();
+    }, []);
+  });
 
   const handleSignOut = () => { signOut(); navigate("/"); };
 
-  const handleAlertClick = (alert: PatientAlert) => {
+  const handleAlertClick = async (alert: PatientAlert) => {
     setSelectedAlert(alert);
-    if (alert.status === "unread") {
-      setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, status: "read" as AlertStatus } : a));
+    if (!alert.is_read) {
+      try {
+        await doctorApi.markAlertRead(alert.id);
+        setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, is_read: true } : a));
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
-  const handleReview = (alertId: string, notes: string) => {
-    setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, status: "reviewed" as AlertStatus, doctorNotes: notes } : a));
-    setSelectedAlert(null);
+  const handleReview = async (alertId: number) => {
+    try {
+      await doctorApi.markAlertRead(alertId);
+      setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, is_read: true } : a));
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  // ── Derived stats ──────────────────────────────────────────────────────────
-  const total        = patientSummaries.length;
-  const inRange      = patientSummaries.filter(p => p.tir >= 70).length;
-  const needAttn     = patientSummaries.filter(p => p.riskLevel === "high").length;
-  const unreadCount  = alerts.filter(a => a.status === "unread").length;
-  const attentionPts = patientSummaries.filter(p => p.tir < 70).sort((a, b) => a.tir - b.tir);
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#F7F8FC]">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
 
-  const hba1cBarColor = (v: number) => v >= 8 ? "#ef4444" : v >= 6.5 ? "#f59e0b" : "#10b981";
+  // ── Derived stats ──────────────────────────────────────────────────────────
+  const stats = dashboardData?.stats || { total_patients: 0, in_range_count: 0, in_range_pct: 0, need_attention: 0 };
+  const attentionPts = dashboardData?.patients_needing_attention || [];
+  const populationTrend = dashboardData?.population_trend || [];
+  const riskDist = dashboardData?.risk_distribution || { high: 0, moderate: 0, low: 0 };
+  const total = stats.total_patients;
+  
+  const riskPieData = [
+    { name: "High Risk",  value: riskDist.high, color: "#ef4444" },
+    { name: "Moderate",   value: riskDist.moderate, color: "#f59e0b" },
+    { name: "Low Risk",   value: riskDist.low, color: "#10b981" },
+  ].filter(d => d.value > 0);
+
+  const unreadCount  = alerts.filter(a => !a.is_read).length;
 
   const timeAgo = (date: string) => {
     const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
@@ -399,12 +343,12 @@ export default function DoctorDashboard() {
                   valColor: "text-slate-900", trend: null,
                 },
                 {
-                  label: "In Range", value: inRange, unit: `${Math.round(inRange/total*100)}% of patients`,
+                  label: "In Range", value: stats.in_range_count, unit: `${stats.in_range_pct}% of patients`,
                   icon: CheckCircle, bg: "bg-emerald-50", iconColor: "text-emerald-600",
                   valColor: "text-emerald-700", trend: "TIR ≥ 70%",
                 },
                 {
-                  label: "Need Attention", value: needAttn, unit: "high-risk patients",
+                  label: "Need Attention", value: stats.need_attention, unit: "high-risk patients",
                   icon: AlertTriangle, bg: "bg-red-50", iconColor: "text-red-600",
                   valColor: "text-red-700", trend: "High risk",
                 },
@@ -546,41 +490,42 @@ export default function DoctorDashboard() {
               </div>
 
               <div className="divide-y divide-slate-50">
-                {attentionPts.map(p => {
-                  const risk = riskConfig[p.riskLevel];
-                  const tirColor = p.tir < 30 ? "text-red-700 bg-red-50"
-                                 : p.tir < 50 ? "text-amber-700 bg-amber-50"
+                {attentionPts.map((p: any) => {
+                  const risk = riskConfig[p.risk_level] || riskConfig.moderate;
+                  const tirColor = p.time_in_range_pct < 30 ? "text-red-700 bg-red-50"
+                                 : p.time_in_range_pct < 50 ? "text-amber-700 bg-amber-50"
                                               : "text-yellow-700 bg-yellow-50";
+                  const initials = p.full_name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2);
                   return (
                     <div
-                      key={p.id}
-                      onClick={() => navigate("/dashboard/doctor/patients")}
+                      key={p.patient_id}
+                      onClick={() => navigate(`/dashboard/doctor/patients/${p.patient_id}`)}
                       className="grid grid-cols-5 items-center px-5 py-4 hover:bg-slate-50/60 transition-colors cursor-pointer"
                     >
                       <div className="col-span-2 flex items-center gap-3">
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs flex-shrink-0" style={{ fontWeight: 700 }}>
-                          {p.initials}
+                          {initials}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-slate-900 text-sm truncate" style={{ fontWeight: 600 }}>{p.name}</p>
-                          <p className="text-slate-400 text-xs">{p.id} · {p.diagnosis}</p>
+                          <p className="text-slate-900 text-sm truncate" style={{ fontWeight: 600 }}>{p.full_name}</p>
+                          <p className="text-slate-400 text-xs">{p.patient_code} · {p.diabetes_type || "Unknown Type"}</p>
                         </div>
                       </div>
                       <div>
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold ${p.avgGlucose >= 140 ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold ${p.avg_glucose >= 140 ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
                           <Droplets className="w-3 h-3" />
-                          {p.avgGlucose} mg/dL
+                          {p.avg_glucose} mg/dL
                         </span>
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <div className="w-20 h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full ${p.tir < 30 ? "bg-red-500" : p.tir < 50 ? "bg-amber-500" : "bg-yellow-500"}`}
-                              style={{ width: `${p.tir}%` }}
+                              className={`h-full rounded-full ${p.time_in_range_pct < 30 ? "bg-red-500" : p.time_in_range_pct < 50 ? "bg-amber-500" : "bg-yellow-500"}`}
+                              style={{ width: `${p.time_in_range_pct}%` }}
                             />
                           </div>
-                          <span className={`text-xs px-1.5 py-0.5 rounded-md font-semibold ${tirColor}`}>{p.tir}%</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-md font-semibold ${tirColor}`}>{p.time_in_range_pct}%</span>
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
@@ -613,16 +558,16 @@ export default function DoctorDashboard() {
               </div>
               <div className="divide-y divide-slate-50">
                 {alerts.slice(0, 4).map(alert => {
-                  const sev = severityConfig[alert.severity];
+                  const sev = severityConfig[alert.severity] || severityConfig.moderate;
                   return (
                     <div
                       key={alert.id}
                       onClick={() => handleAlertClick(alert)}
-                      className={`flex items-center gap-4 px-5 py-4 hover:bg-slate-50/60 transition-colors cursor-pointer ${alert.status === "unread" ? "bg-blue-50/30" : ""}`}
+                      className={`flex items-center gap-4 px-5 py-4 hover:bg-slate-50/60 transition-colors cursor-pointer ${!alert.is_read ? "bg-blue-50/30" : ""}`}
                     >
                       <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0 relative">
                         <Droplets className="w-4 h-4 text-blue-500" strokeWidth={1.8} />
-                        {alert.status === "unread" && (
+                        {!alert.is_read && (
                           <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white" />
                         )}
                       </div>
@@ -632,11 +577,8 @@ export default function DoctorDashboard() {
                           <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${sev.bg} ${sev.text}`}>
                             {sev.label}
                           </span>
-                          {alert.status === "reviewed" && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-semibold">Reviewed</span>
-                          )}
                         </div>
-                        <p className="text-slate-500 text-xs truncate">{alert.summary}</p>
+                        <p className="text-slate-500 text-xs truncate">{alert.message}</p>
                       </div>
                       <div className="flex items-center gap-3 flex-shrink-0">
                         <span className="text-slate-300 text-xs">{timeAgo(alert.timestamp)}</span>

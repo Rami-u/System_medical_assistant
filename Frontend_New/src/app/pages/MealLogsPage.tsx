@@ -7,6 +7,7 @@ import {
   AlertTriangle, RefreshCw, Plus, Minus, Sparkles,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { mealApi } from "../../api/mealApi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type MealType   = "breakfast" | "lunch" | "dinner" | "snack";
@@ -128,36 +129,7 @@ const sidebarNav = [
 const todayStr    = new Date().toISOString().split("T")[0];
 const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split("T")[0];
 
-// ─── Pre-seeded history ───────────────────────────────────────────────────────
-const SAMPLE_MEALS: MealEntry[] = [
-  {
-    id: "s1", mealType: "breakfast", label: "Oat & Fruit Breakfast",
-    foods: [
-      { name: "Oatmeal", carbs: 27, unit: "1 cup", confidence: 96 },
-      { name: "Banana",  carbs: 27, unit: "1 medium", confidence: 93 },
-    ],
-    carbEstimate: 54, time: "08:10", date: todayStr,
-    imageUrl: "https://images.unsplash.com/photo-1517673132405-a56a62b18caf?w=400&q=80",
-  },
-  {
-    id: "s2", mealType: "lunch", label: "Chicken & Rice Bowl",
-    foods: [
-      { name: "White Rice",       carbs: 45, unit: "1 cup", confidence: 94 },
-      { name: "Grilled Chicken",  carbs: 0,  unit: "150g",  confidence: 91 },
-    ],
-    carbEstimate: 45, time: "13:00", date: todayStr,
-    imageUrl: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&q=80",
-  },
-  {
-    id: "s3", mealType: "dinner", label: "Pasta & Chicken",
-    foods: [
-      { name: "Pasta (cooked)", carbs: 43, unit: "1 cup", confidence: 95 },
-      { name: "Tomato Sauce",   carbs: 12, unit: "½ cup", confidence: 90 },
-    ],
-    carbEstimate: 55, time: "19:30", date: yesterdayStr,
-    imageUrl: "https://images.unsplash.com/photo-1621996346565-e3dbc353d2e5?w=400&q=80",
-  },
-];
+// ─── Pre-seeded history removed in favor of real API data
 
 // ─── Camera Modal ─────────────────────────────────────────────────────────────
 function CameraModal({ onCapture, onClose }: { onCapture: (dataUrl: string) => void; onClose: () => void }) {
@@ -334,10 +306,47 @@ export default function MealLogsPage() {
   const [isDragging,   setIsDragging]   = useState(false);
 
   // ── History
-  const [mealEntries,  setMealEntries]  = useState<MealEntry[]>(SAMPLE_MEALS);
+  const [mealEntries,  setMealEntries]  = useState<MealEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const uploadRef = useRef<HTMLInputElement>(null);
   const cameraFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const fetchMeals = async () => {
+      try {
+        setLoading(true);
+        const data = await mealApi.getLogs(30);
+        const mapped = data.map((d: any) => {
+          const dObj = new Date(d.meal_time);
+          const hour = dObj.getHours();
+          const mealType: MealType = hour < 11 ? "breakfast" : hour < 16 ? "lunch" : hour < 21 ? "dinner" : "snack";
+          return {
+            id: d.id.toString(),
+            mealType,
+            label: d.meal_name || "Unknown Meal",
+            foods: (d.detected_items || []).map((i: any) => ({
+              name: i.food_name,
+              carbs: i.carbs_g || 0,
+              unit: i.quantity_desc || "",
+              confidence: i.confidence_pct || 100
+            })),
+            carbEstimate: d.total_carbs_g || 0,
+            time: dObj.toTimeString().slice(0, 5),
+            date: dObj.toISOString().split("T")[0],
+            imageUrl: d.image_url || "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&q=80"
+          };
+        });
+        setMealEntries(mapped);
+      } catch (err: any) {
+        setError(err.message || "Failed to load meal logs");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchMeals();
+  }, []);
 
   const handleSignOut = () => { signOut(); navigate("/"); };
 
@@ -401,29 +410,48 @@ export default function MealLogsPage() {
   };
 
   // ─── Log the meal
-  const handleLogMeal = () => {
+  const handleLogMeal = async () => {
     if (!previewUrl || !detected) return;
     const carbEstimate = editedFoods.reduce((s, f) => s + f.carbs, 0);
     const nowTime = new Date().toTimeString().slice(0, 5);
-    setMealEntries((prev) => [
-      {
-        id: `m${Date.now()}`,
-        mealType: selectedType,
-        label: detected.label,
-        foods: editedFoods,
-        carbEstimate,
-        time: nowTime,
-        date: todayStr,
-        imageUrl: previewUrl,
-      },
-      ...prev,
-    ]);
-    // Reset capture flow
-    setPreviewUrl(null);
-    setScanStage("idle");
-    setDetected(null);
-    setEditedFoods([]);
-    setScanStep(0);
+    
+    try {
+      const dObj = new Date();
+      const res = await mealApi.addLog({
+        meal_name: detected.label,
+        image_url: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&q=80", // Using placeholder image since we can't upload directly yet
+        total_carbs_g: carbEstimate,
+        meal_time: dObj.toISOString(),
+        detected_items: editedFoods.map(f => ({
+          food_name: f.name,
+          confidence_pct: f.confidence,
+          quantity_desc: f.unit,
+          carbs_g: f.carbs
+        }))
+      });
+
+      setMealEntries((prev) => [
+        {
+          id: res.id.toString(),
+          mealType: selectedType,
+          label: detected.label,
+          foods: editedFoods,
+          carbEstimate,
+          time: nowTime,
+          date: todayStr,
+          imageUrl: previewUrl,
+        },
+        ...prev,
+      ]);
+      // Reset capture flow
+      setPreviewUrl(null);
+      setScanStage("idle");
+      setDetected(null);
+      setEditedFoods([]);
+      setScanStep(0);
+    } catch (err) {
+      alert("Failed to save meal log");
+    }
   };
 
   // ─── Remove a meal from history
@@ -736,7 +764,11 @@ export default function MealLogsPage() {
                       <h2 className="text-slate-900 text-sm" style={{ fontWeight: 700 }}>Meal History</h2>
                       <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-lg font-medium">{mealEntries.length} logged</span>
                     </div>
-                    {mealEntries.length > 0 && (
+                    {loading ? (
+                      <div className="py-4 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-emerald-500" /></div>
+                    ) : error ? (
+                      <div className="py-4 text-center text-red-500 text-sm font-semibold">{error}</div>
+                    ) : mealEntries.length > 0 && (
                       <div className="grid grid-cols-2 gap-2">
                         <div className="bg-emerald-50 rounded-xl p-2.5 text-center">
                           <p className="text-emerald-400 text-[10px] mb-0.5">Total Carbs</p>

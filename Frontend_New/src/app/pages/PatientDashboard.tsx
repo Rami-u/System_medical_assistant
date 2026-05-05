@@ -13,6 +13,7 @@ import {
   ReferenceLine, Area, AreaChart, Legend,
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
+import { patientApi } from "../../api/patientApi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ClinicalNote {
@@ -431,17 +432,53 @@ export default function PatientDashboard() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [modal, setModal] = useState<"glucose" | "meal" | null>(null);
+  
+  // Real API Data states
+  const [data, setData] = useState<any | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Local UI states
   const [activity, setActivity] = useState<ActivityLog[]>(initialActivity);
   const [notifRead, setNotifRead] = useState<number[]>([]);
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>(7);
   const [doctorNotes, setDoctorNotes] = useState<ClinicalNote[]>([]);
 
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const dashboardData = await patientApi.getDashboard();
+        setData(dashboardData);
+      } catch (err: any) {
+        setError(err.response?.data?.detail || err.message || "Failed to load dashboard");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+
     setDoctorNotes(loadDoctorNotes());
     const onStorage = () => setDoctorNotes(loadDoctorNotes());
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#F7F8FC]">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#F7F8FC]">
+        <div className="text-red-500 font-semibold">{error}</div>
+      </div>
+    );
+  }
 
   const handleSignOut = () => { signOut(); navigate("/"); };
 
@@ -458,18 +495,10 @@ export default function PatientDashboard() {
 
   const unreadCount = notifications.filter((n) => n.unread && !notifRead.includes(n.id)).length;
 
-  // Latest glucose from activity
-  const latestGlucose = activity.find((a) => a.type === "glucose");
-  const latestMeal = activity.find((a) => a.type === "meal");
-
-  // Derive condition status from latest glucose
-  const conditionStatus: ConditionStatus = latestGlucose
-    ? parseFloat(latestGlucose.detail) >= 140
-      ? "Critical"
-      : parseFloat(latestGlucose.detail) >= 110
-      ? "Mid"
-      : "Low"
-    : "Low";
+  // Real data integration
+  const conditionStatus: ConditionStatus = data?.risk_level === 'high' ? 'Critical' : data?.risk_level === 'moderate' ? 'Mid' : 'Low';
+  const apiAvgGlucose = data?.today_avg_glucose ? data.today_avg_glucose.toFixed(1) : "—";
+  const apiLastMealTime = data?.last_meal_time ? new Date(data.last_meal_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "—";
 
   return (
     <div className="flex h-screen bg-[#F7F8FC] overflow-hidden">
@@ -588,12 +617,12 @@ export default function PatientDashboard() {
                   <Droplets className="w-6 h-6 text-blue-500" strokeWidth={1.8} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-slate-400 text-xs mb-0.5">Latest Glucose</p>
+                  <p className="text-slate-400 text-xs mb-0.5">Today Avg Glucose</p>
                   <p className="text-slate-900" style={{ fontWeight: 800, fontSize: "1.75rem", lineHeight: 1 }}>
-                    {latestGlucose ? latestGlucose.detail.split(" ")[0] : "—"}
+                    {apiAvgGlucose}
                   </p>
                   <p className="text-slate-400 text-xs mt-1 truncate">
-                    {latestGlucose ? `mg/dL · ${latestGlucose.time}` : "No reading yet"}
+                    {data?.today_avg_glucose ? "mg/dL · Average" : "No reading today"}
                   </p>
                 </div>
                 <div className="flex-shrink-0">
@@ -621,10 +650,10 @@ export default function PatientDashboard() {
                 <div className="flex-1 min-w-0">
                   <p className="text-slate-400 text-xs mb-0.5">Last Meal</p>
                   <p className="text-slate-900 truncate" style={{ fontWeight: 700, fontSize: "1.05rem", lineHeight: 1.2 }}>
-                    {latestMeal ? latestMeal.title.replace(" Logged", "") : "Not logged"}
+                    {data?.last_meal_time ? "Logged" : "Not logged"}
                   </p>
                   <p className="text-slate-400 text-xs mt-1 truncate">
-                    {latestMeal ? latestMeal.detail : "No meal yet"}
+                    {data?.last_meal_time ? apiLastMealTime : "No meal yet"}
                   </p>
                 </div>
                 <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center flex-shrink-0">

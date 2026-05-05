@@ -9,17 +9,30 @@ import GlucoseLogsPage from "./pages/GlucoseLogsPage";
 import MealLogsPage from "./pages/MealLogsPage";
 import AIAssistantPage from "./pages/AIAssistantPage";
 import PatientSettingsPage from "./pages/PatientSettingsPage";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 export const router = createBrowserRouter([
-  { path: "/",                               Component: LandingPage },
-  { path: "/auth",                           Component: AuthPage },
-  { path: "/diabetes-test",                  Component: DiabetesTestPage },
-  { path: "/dashboard/patient",              Component: PatientDashboard },
-  { path: "/dashboard/patient/glucose",      Component: GlucoseLogsPage },
-  { path: "/dashboard/patient/meals",        Component: MealLogsPage },
-  { path: "/dashboard/patient/ai-chat",      Component: AIAssistantPage },
-  { path: "/dashboard/patient/settings",     Component: PatientSettingsPage },
-  { path: "/dashboard/doctor",               Component: DoctorDashboard },
-  { path: "/dashboard/doctor/patients",      Component: PatientDetailsPage },
+  { path: "/", Component: LandingPage },
+  { path: "/auth", Component: AuthPage },
+  { path: "/diabetes-test", Component: DiabetesTestPage },
+  {
+    path: "/dashboard/patient",
+    element: <ProtectedRoute allowedRole="patient" />,
+    children: [
+      { index: true, Component: PatientDashboard },
+      { path: "glucose", Component: GlucoseLogsPage },
+      { path: "meals", Component: MealLogsPage },
+      { path: "ai-chat", Component: AIAssistantPage },
+      { path: "settings", Component: PatientSettingsPage },
+    ]
+  },
+  {
+    path: "/dashboard/doctor",
+    element: <ProtectedRoute allowedRole="doctor" />,
+    children: [
+      { index: true, Component: DoctorDashboard },
+      { path: "patients", Component: PatientDetailsPage },
+    ]
+  },
   { path: "*", Component: () => <Navigate to="/" replace /> },
 ]);

@@ -5,6 +5,8 @@ Uses selectinload to prevent N+1 when loading messages.
 """
 
 from datetime import datetime, timezone
+import io
+import logging
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -22,9 +24,144 @@ from app.schemas.ai_schemas import (
     AiConversationResponse, AiMessageResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 # Configure Gemini
 api_key = os.getenv("GEMINI_API_KEY", "dummy_key")
 genai.configure(api_key=api_key)
+
+
+# ──────────────────────────────────────────────
+# Pre-trained model management
+# ──────────────────────────────────────────────
+
+# ImageNet class labels for the food-detection CNN
+# This list must match the training label order of best_model.pth
+_FOOD_LABELS: list[str] = []
+
+
+def _load_food_labels() -> list[str]:
+    """Load class labels from labels.txt next to the model, or return a
+    numeric fallback list."""
+    labels_path = os.path.join("models", "labels.txt")
+    if os.path.isfile(labels_path):
+        with open(labels_path, encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip()]
+    return []
+
+
+class AIModelService:
+    """
+    Manages pre-trained scikit-learn and PyTorch models used for
+    diabetes screening and food-image detection.
+    """
+
+    _simple_model = None
+    _advanced_model = None
+    _vision_model = None
+
+    @classmethod
+    def load_models(cls) -> None:
+        """Load all three pre-trained models from the models/ directory."""
+        import joblib
+        import torch
+        import torch.nn as nn
+        from torchvision import models as tv_models
+
+        global _FOOD_LABELS
+
+        logger.info("Loading pre-trained models …")
+        cls._simple_model = joblib.load("models/simple_model.pkl")
+        cls._advanced_model = joblib.load("models/advanced_model.pkl")
+
+        # ── Reconstruct the vision CNN from state_dict ──────────
+        # The .pth file is a state_dict saved from a custom wrapper
+        # around EfficientNet-B3 with a 4-class classifier head.
+        state_dict = torch.load("models/best_model.pth", map_location="cpu")
+
+        # Determine number of output classes from the final layer
+        num_classes = state_dict["backbone.classifier.11.weight"].shape[0]
+
+        # Build the same architecture used during training
+        backbone = tv_models.efficientnet_b3(weights=None)
+        backbone.classifier = nn.Sequential(
+            nn.Dropout(p=0.3),
+            nn.Linear(1536, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(p=0.3),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.BatchNorm1d(256),
+            nn.Dropout(p=0.3),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, num_classes),
+        )
+
+        # The state_dict keys are prefixed with "backbone." — strip it
+        cleaned = {
+            k.replace("backbone.", "", 1): v
+            for k, v in state_dict.items()
+        }
+        backbone.load_state_dict(cleaned, strict=True)
+        backbone.eval()
+
+        cls._vision_model = backbone
+        _FOOD_LABELS = _load_food_labels()
+        logger.info(
+            "All models loaded successfully (vision model: %d classes).",
+            num_classes,
+        )
+
+    @classmethod
+    def models_ready(cls) -> bool:
+        return all([cls._simple_model, cls._advanced_model, cls._vision_model])
+
+    # ── Vision (food-image CNN) ──────────────────────────────
+    @classmethod
+    def run_vision_model(cls, image_bytes: bytes) -> dict | None:
+        """
+        Run the PyTorch CNN on raw image bytes.
+
+        Returns {"food_name": str, "confidence_pct": float} for the
+        top-1 prediction, or ``None`` when max confidence < 70 %
+        (which signals the caller to fall back to Gemini Vision).
+        """
+        import torch
+        from PIL import Image
+        from torchvision import transforms
+
+        preprocess = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+            ),
+        ])
+
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        tensor = preprocess(img).unsqueeze(0)  # (1, 3, 224, 224)
+
+        with torch.no_grad():
+            logits = cls._vision_model(tensor)
+            probs = torch.nn.functional.softmax(logits, dim=1)
+            confidence, idx = probs.max(dim=1)
+
+        confidence_pct = round(confidence.item() * 100, 2)
+        class_idx = idx.item()
+
+        if confidence_pct < 70.0:
+            return None  # triggers Gemini fallback
+
+        food_name = (
+            _FOOD_LABELS[class_idx]
+            if class_idx < len(_FOOD_LABELS)
+            else f"class_{class_idx}"
+        )
+
+        return {"food_name": food_name, "confidence_pct": confidence_pct}
 
 
 

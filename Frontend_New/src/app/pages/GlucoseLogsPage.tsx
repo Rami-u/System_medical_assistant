@@ -5,9 +5,10 @@ import {
   Bell, Settings, LogOut, Menu, X, Calendar,
   Clock, Plus, Trash2,
   AlertTriangle, ArrowUpRight, ArrowDownRight, Minus,
-  Info, Sparkles,
+  Info, Sparkles, Loader2,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { glucoseApi } from "../../api/glucoseApi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type MeasurementContext = "fasting" | "after-meal" | "before-sleep" | "random";
@@ -36,13 +37,7 @@ const sidebarNav = [
   { icon: Settings,        label: "Settings",     path: "/dashboard/patient/settings" },
 ];
 
-// ─── Pre-populated sample entries ─────────────────────────────────────────────
-const sampleGlucose: GlucoseEntry[] = [
-  { id: "g1", date: "2026-05-01", time: "07:30", value: 112, context: "fasting",     notes: "Feeling slightly tired" },
-  { id: "g2", date: "2026-05-01", time: "10:00", value: 148, context: "after-meal",  notes: "" },
-  { id: "g3", date: "2026-04-30", time: "07:20", value: 105, context: "fasting",     notes: "" },
-  { id: "g4", date: "2026-04-30", time: "13:45", value: 162, context: "after-meal",  notes: "Had rice for lunch" },
-];
+// ─── Pre-populated sample entries removed in favor of real API data
 
 function glucoseColor(v: number) {
   if (v >= 180) return { text: "text-red-600",    bg: "bg-red-50",    border: "border-red-200" };
@@ -68,21 +63,70 @@ export default function GlucoseLogsPage() {
 
   const [gForm, setGForm] = useState({ date: today, time: nowTime, value: "", context: "fasting" as MeasurementContext, notes: "" });
   const [gErr, setGErr] = useState("");
-  const [glucoseEntries, setGlucoseEntries] = useState<GlucoseEntry[]>(sampleGlucose);
+  const [glucoseEntries, setGlucoseEntries] = useState<GlucoseEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        setLoading(true);
+        const data = await glucoseApi.getLogs(30);
+        const mapped = data.map((d: any) => {
+          const dObj = new Date(d.recorded_at);
+          return {
+            id: d.id.toString(),
+            date: dObj.toISOString().split("T")[0],
+            time: dObj.toTimeString().slice(0, 5),
+            value: d.glucose_value,
+            context: d.reading_type.replace("_", "-") as MeasurementContext,
+            notes: d.notes || "",
+          };
+        });
+        setGlucoseEntries(mapped);
+      } catch (err: any) {
+        setError(err.message || "Failed to load logs");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchLogs();
+  }, []);
 
   const handleSignOut = () => { signOut(); navigate("/"); };
   const updateG = (k: string, v: string) => setGForm((f) => ({ ...f, [k]: v }));
 
-  const addGlucose = () => {
+  const addGlucose = async () => {
     const val = parseFloat(gForm.value);
     if (!gForm.value || isNaN(val)) { setGErr("Please enter a valid glucose value."); return; }
     if (val < 20 || val > 600) { setGErr("Value must be between 20 and 600 mg/dL."); return; }
     setGErr("");
-    setGlucoseEntries((prev) => [
-      { id: `g${Date.now()}`, date: gForm.date, time: gForm.time, value: val, context: gForm.context, notes: gForm.notes },
-      ...prev,
-    ]);
-    setGForm((f) => ({ ...f, value: "", notes: "", time: new Date().toTimeString().slice(0, 5) }));
+    
+    try {
+      const dObj = new Date(`${gForm.date}T${gForm.time}:00`);
+      const recorded_at = dObj.toISOString();
+      const res = await glucoseApi.addLog({
+        glucose_value: val,
+        reading_type: gForm.context.replace("-", "_"),
+        recorded_at,
+        notes: gForm.notes || undefined,
+      });
+      
+      setGlucoseEntries((prev) => [
+        {
+          id: res.id.toString(),
+          date: gForm.date,
+          time: gForm.time,
+          value: val,
+          context: gForm.context,
+          notes: gForm.notes,
+        },
+        ...prev,
+      ]);
+      setGForm((f) => ({ ...f, value: "", notes: "", time: new Date().toTimeString().slice(0, 5) }));
+    } catch (err: any) {
+      setGErr(err.response?.data?.detail || "Failed to add log to server");
+    }
   };
 
   const removeGlucose = (id: string) => setGlucoseEntries((p) => p.filter((e) => e.id !== id));
@@ -152,7 +196,7 @@ export default function GlucoseLogsPage() {
           </div>
           <div>
             <h1 className="text-slate-900 text-sm" style={{ fontWeight: 700 }}>Glucose Logs</h1>
-            <p className="text-slate-400 text-xs">Thursday, May 1, 2026</p>
+            <p className="text-slate-400 text-xs">Today</p>
           </div>
           <div className="ml-auto">
             <button
@@ -167,6 +211,13 @@ export default function GlucoseLogsPage() {
         {/* Body */}
         <main className="flex-1 overflow-y-auto px-5 py-6">
           <div className="max-w-5xl mx-auto">
+            {loading ? (
+              <div className="flex justify-center items-center h-64">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+              </div>
+            ) : error ? (
+              <div className="flex justify-center items-center h-64 text-red-500 font-semibold">{error}</div>
+            ) : (
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
 
               {/* ── Glucose Form (left 3 cols) ── */}
@@ -336,6 +387,7 @@ export default function GlucoseLogsPage() {
                 </div>
               </div>
             </div>
+            )}
           </div>
         </main>
       </div>
