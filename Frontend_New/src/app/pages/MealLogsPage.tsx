@@ -581,7 +581,7 @@ export default function MealLogsPage() {
                             <button
                               onClick={() => {
                                 // Try getUserMedia on desktop, file capture on mobile
-                                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                                if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
                                   setShowCamera(true);
                                 } else {
                                   cameraFileRef.current?.click();

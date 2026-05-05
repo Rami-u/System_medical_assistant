@@ -16,5 +16,9 @@ export const mealApi = {
   getLogs: async (days: number = 7) => {
     const res = await axiosClient.get(`/meal/logs?days=${days}`);
     return res.data;
+  },
+  addLog: async (data: any) => {
+    const res = await axiosClient.post('/meal/confirm', data);
+    return res.data;
   }
 };

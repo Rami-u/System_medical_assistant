@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   Activity, LayoutDashboard, Droplets, Utensils, Settings,
@@ -70,9 +70,9 @@ const SUGGESTED_PROMPTS = [
 ];
 
 // ─── Markdown Renderer ────────────────────────────────────────────────────────
-function renderMarkdown(text: string): JSX.Element {
+function renderMarkdown(text: string): React.JSX.Element {
   const lines = text.split("\n");
-  const elements: JSX.Element[] = [];
+  const elements: React.JSX.Element[] = [];
   let i = 0;
   let key = 0;
 
@@ -209,8 +209,8 @@ function renderMarkdown(text: string): JSX.Element {
   return <div className="space-y-1">{elements}</div>;
 }
 
-function inlineMarkdown(text: string): (string | JSX.Element)[] {
-  const parts: (string | JSX.Element)[] = [];
+function inlineMarkdown(text: string): (string | React.JSX.Element)[] {
+  const parts: (string | React.JSX.Element)[] = [];
   const regex = /\*\*(.+?)\*\*|_(.+?)_/g;
   let last = 0;
   let match;

@@ -540,7 +540,7 @@ export default function PatientDashboard() {
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-          {sidebarNav.map(({ icon: Icon, label, active, badge, path }) => (
+          {sidebarNav.map(({ icon: Icon, label, active, path }) => (
             <button
               key={label}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${active ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
@@ -549,9 +549,7 @@ export default function PatientDashboard() {
             >
               <Icon className={`w-4 h-4 ${active ? "text-blue-600" : "text-slate-400"}`} strokeWidth={1.8} />
               <span className="flex-1 text-left">{label}</span>
-              {badge && (
-                <span className="bg-red-500 text-white text-xs rounded-full w-[18px] h-[18px] flex items-center justify-center">{badge}</span>
-              )}
+
             </button>
           ))}
         </nav>
@@ -626,11 +624,11 @@ export default function PatientDashboard() {
                   </p>
                 </div>
                 <div className="flex-shrink-0">
-                  {latestGlucose?.trend === "up" ? (
+                  {data?.glucose_trend === "up" ? (
                     <div className="w-8 h-8 bg-red-50 rounded-lg flex items-center justify-center">
                       <ArrowUpRight className="w-4 h-4 text-red-400" />
                     </div>
-                  ) : latestGlucose?.trend === "down" ? (
+                  ) : data?.glucose_trend === "down" ? (
                     <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
                       <ArrowDownRight className="w-4 h-4 text-blue-400" />
                     </div>

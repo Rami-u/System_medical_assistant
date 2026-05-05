@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 import numpy as np
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.patient_doctor import Patient
@@ -91,46 +90,84 @@ def _parse_bmi(raw_value) -> float:
 
 def _extract_simple_features(answers: list) -> list[float]:
     """
-    Build the feature vector for simple_model.pkl.
+    Build the feature vector for the simple screening.
 
-    Expected order (6 features):
-    [age, bmi, glucose_level, physical_activity_level, family_history, smoker]
+    NOTE: simple_model.pkl was trained on StandardScaler-normalized data
+    but the scaler was NOT saved alongside the model. As a result, it
+    always predicts "high" when given raw feature values.
 
-    Questions:
+    WORKAROUND: we map the 6 simple questions onto the 8-feature vector
+    used by advanced_model.pkl (XGBoost, which works correctly on raw
+    values).  Missing advanced fields (hypertension, heart_disease,
+    smoking, HbA1c) are filled with conservative defaults.
+
+    Simple questions:
       1: age (int)
       2: bmi — answer_value format "height_cm,weight_kg"
-      3: glucose_level (float)
-      4: physical_activity_level (0/1/2)
-      5: family_history (0/1)
-      6: smoker (0/1)
+      3: glucose_level (float)  → maps to blood_glucose_level
+      4: physical_activity_level (0/1/2)  — informational only, not in advanced model
+      5: family_history (0/1)  — informational only
+      6: smoker (0/1)  → maps to smoking_history (0 or 2)
+
+    Advanced feature order:
+      [gender, age, hypertension, heart_disease,
+       smoking_history, bmi, HbA1c_level, blood_glucose_level]
     """
     answer_map: dict[int, object] = {}
     for a in answers:
         val = a.answer_numeric if a.answer_numeric is not None else a.answer_value
         answer_map[a.question_id] = val
+        logger.info("  Q%d → answer_numeric=%s, answer_value=%s, chosen=%s", a.question_id, a.answer_numeric, a.answer_value, val)
 
     age = float(answer_map.get(1, 0))
     bmi = _parse_bmi(answer_map.get(2, "0,0"))
     glucose_level = float(answer_map.get(3, 0))
 
-    # physical_activity_level: sedentary=0, moderate=1, active=2
-    activity_raw = answer_map.get(4, 0)
-    activity_map = {"sedentary": 0, "moderate": 1, "active": 2}
-    physical_activity = (
-        activity_map.get(str(activity_raw).lower(), int(float(activity_raw)))
-        if not str(activity_raw).replace(".", "").isdigit()
-        else int(float(activity_raw))
-    )
+    # smoker -> smoking_history: no=0, yes=2(current)
+    smoker_raw = answer_map.get(6, 0)
+    smoking = 2 if str(smoker_raw).lower() in ("yes", "1", "true") else 0
 
-    # family_history: 0 or 1
+    # family_history
     fh_raw = answer_map.get(5, 0)
     family_history = 1 if str(fh_raw).lower() in ("yes", "1", "true") else 0
 
-    # smoker: 0 or 1
-    smoker_raw = answer_map.get(6, 0)
-    smoker = 1 if str(smoker_raw).lower() in ("yes", "1", "true") else 0
+    # activity
+    activity_raw = answer_map.get(4, 0)
+    activity_map = {"sedentary": 0, "moderate": 1, "active": 2}
+    activity_str = str(activity_raw).lower().strip()
+    if activity_str in activity_map:
+        physical_activity = activity_map[activity_str]
+    else:
+        try:
+            physical_activity = int(float(activity_raw))
+        except (ValueError, TypeError):
+            physical_activity = 1
 
-    return [age, bmi, glucose_level, physical_activity, family_history, smoker]
+    # ── Infer missing advanced features from simple data ──
+    gender = 0  # conservative default
+
+    # Estimate hypertension from age + BMI risk factors
+    hypertension = 1 if (age >= 45 and bmi >= 28) else 0
+    heart_disease = 0
+
+    # Estimate HbA1c from blood glucose using the eAG formula:
+    #   eAG (mg/dL) = 28.7 × HbA1c − 46.7
+    #   HbA1c = (eAG + 46.7) / 28.7
+    hba1c = (glucose_level + 46.7) / 28.7
+
+    # Adjust based on risk factors
+    if family_history:
+        hba1c += 0.3
+    if physical_activity == 0:  # sedentary
+        hba1c += 0.2
+    if bmi >= 30:
+        hba1c += 0.2
+
+    features = [gender, age, hypertension, heart_disease, smoking, bmi, hba1c, glucose_level]
+    logger.info("SIMPLE->ADVANCED features: gender=%d, age=%.1f, hypertension=%d, heart_disease=%d, smoking=%d, bmi=%.2f, hba1c=%.1f, blood_glucose=%.1f",
+                gender, age, hypertension, heart_disease, smoking, bmi, hba1c, glucose_level)
+    logger.info("SIMPLE->ADVANCED feature vector: %s", features)
+    return features
 
 
 def _extract_advanced_features(answers: list) -> list[float]:
@@ -155,6 +192,7 @@ def _extract_advanced_features(answers: list) -> list[float]:
     for a in answers:
         val = a.answer_numeric if a.answer_numeric is not None else a.answer_value
         answer_map[a.question_id] = val
+        logger.info("  Q%d → answer_numeric=%s, answer_value=%s, chosen=%s", a.question_id, a.answer_numeric, a.answer_value, val)
 
     # gender: male=1, female=0
     gender_raw = answer_map.get(1, "male")
@@ -176,7 +214,10 @@ def _extract_advanced_features(answers: list) -> list[float]:
     hba1c = float(answer_map.get(7, 0))
     blood_glucose = float(answer_map.get(8, 0))
 
-    return [gender, age, hypertension, heart_disease, smoking, bmi, hba1c, blood_glucose]
+    features = [gender, age, hypertension, heart_disease, smoking, bmi, hba1c, blood_glucose]
+    logger.info("ADVANCED features: gender=%d, age=%.1f, hypertension=%d, heart_disease=%d, smoking=%d, bmi=%.2f, hba1c=%.1f, blood_glucose=%.1f", gender, age, hypertension, heart_disease, smoking, bmi, hba1c, blood_glucose)
+    logger.info("ADVANCED feature vector: %s", features)
+    return features
 
 
 # ──────────────────────────────────────────────
@@ -203,17 +244,24 @@ def predict_and_save_screening(
     screening_type_id = _resolve_screening_type_id(data.screening_type, db)
 
     # 1. Build feature vector
+    #    NOTE: Both simple and advanced now use the advanced model (XGBoost)
+    #    because simple_model.pkl was trained on scaled data without its
+    #    scaler saved alongside it, causing it to always predict "high".
     if data.screening_type == "simple":
         features = _extract_simple_features(data.answers)
-        model = AIModelService._simple_model
     else:
         features = _extract_advanced_features(data.answers)
-        model = AIModelService._advanced_model
+    model = AIModelService._advanced_model
 
     # 2. Predict
     try:
+        logger.info("=== PREDICTION [%s] ===", data.screening_type)
+        logger.info("Final feature vector: %s", features)
         proba = model.predict_proba([features])[0]
+        logger.info("predict_proba output: %s", proba)
+        logger.info("Model classes: %s", model.classes_)
         risk_score = round(float(proba[1]) * 100, 2)
+        logger.info("risk_score=%.2f (proba[1]=%.4f)", risk_score, proba[1])
     except Exception as exc:
         logger.error("Model prediction failed: %s", exc)
         raise HTTPException(

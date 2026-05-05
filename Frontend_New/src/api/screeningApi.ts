@@ -9,6 +9,13 @@ export const screeningApi = {
     const res = await axiosClient.post('/screening/predict', data);
     return res.data;
   },
+  predictRisk: async (screeningType: string, answers: any[]) => {
+    const res = await axiosClient.post('/screening/predict', {
+      screening_type: screeningType,
+      answers: answers
+    });
+    return res.data;
+  },
   getHistory: async () => {
     const res = await axiosClient.get('/screening/history');
     return res.data;
