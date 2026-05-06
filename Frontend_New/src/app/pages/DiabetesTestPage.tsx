@@ -90,8 +90,8 @@ const simpleSteps: TestStep[] = [
     description: "Regular exercise significantly reduces diabetes risk.",
     field: "activityLevel", type: "select",
     options: [
-      { value: "active",    label: "Active",    detail: "I exercise 3+ times per week" },
-      { value: "moderate",  label: "Moderate",  detail: "I exercise 1–2 times per week" },
+      { value: "active", label: "Active", detail: "I exercise 3+ times per week" },
+      { value: "moderate", label: "Moderate", detail: "I exercise 1–2 times per week" },
       { value: "sedentary", label: "Sedentary", detail: "I rarely or never exercise" },
     ],
   },
@@ -105,7 +105,7 @@ const advancedSteps: TestStep[] = [
     description: "Biological sex influences hormonal and metabolic risk factors for diabetes.",
     field: "gender", type: "select",
     options: [
-      { value: "male",   label: "Male",   detail: "Assigned male at birth" },
+      { value: "male", label: "Male", detail: "Assigned male at birth" },
       { value: "female", label: "Female", detail: "Assigned female at birth" },
     ],
   },
@@ -129,7 +129,7 @@ const advancedSteps: TestStep[] = [
     description: "High blood pressure and type 2 diabetes often co-occur and share risk factors.",
     field: "hypertension", type: "select",
     options: [
-      { value: "no",  label: "No", detail: "I do not have high blood pressure" },
+      { value: "no", label: "No", detail: "I do not have high blood pressure" },
       { value: "yes", label: "Yes", detail: "I have been diagnosed with hypertension" },
     ],
   },
@@ -139,7 +139,7 @@ const advancedSteps: TestStep[] = [
     description: "Cardiovascular disease and diabetes share many risk factors and often appear together.",
     field: "heartDisease", type: "select",
     options: [
-      { value: "no",  label: "No", detail: "No diagnosed heart condition" },
+      { value: "no", label: "No", detail: "No diagnosed heart condition" },
       { value: "yes", label: "Yes", detail: "I have been diagnosed with heart disease" },
     ],
   },
@@ -149,9 +149,9 @@ const advancedSteps: TestStep[] = [
     description: "Smoking increases insulin resistance and is a significant risk factor for diabetes.",
     field: "smokingHistory", type: "select",
     options: [
-      { value: "never",   label: "Never smoked",    detail: "I have never smoked" },
-      { value: "former",  label: "Former smoker",   detail: "I used to smoke but have quit" },
-      { value: "current", label: "Current smoker",  detail: "I currently smoke" },
+      { value: "never", label: "Never smoked", detail: "I have never smoked" },
+      { value: "former", label: "Former smoker", detail: "I used to smoke but have quit" },
+      { value: "current", label: "Current smoker", detail: "I currently smoke" },
       { value: "unknown", label: "Not sure / Prefer not to say", detail: "" },
     ],
   },
@@ -175,19 +175,19 @@ const advancedSteps: TestStep[] = [
 
 // ─── Color map ────────────────────────────────────────────────────────────────
 const colorMap: Record<StepColor, { bg: string; icon: string; border: string; ring: string; btn: string; progress: string }> = {
-  blue:    { bg: "bg-blue-50",    icon: "text-blue-600",    border: "border-blue-500",    ring: "ring-blue-100",    btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300",    progress: "from-blue-600 via-blue-500 to-indigo-600" },
-  indigo:  { bg: "bg-indigo-50",  icon: "text-indigo-600",  border: "border-indigo-500",  ring: "ring-indigo-100",  btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300",    progress: "from-blue-600 via-blue-500 to-indigo-600" },
-  cyan:    { bg: "bg-cyan-50",    icon: "text-cyan-600",    border: "border-cyan-500",    ring: "ring-cyan-100",    btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300",    progress: "from-blue-600 via-blue-500 to-indigo-600" },
-  violet:  { bg: "bg-violet-50",  icon: "text-violet-600",  border: "border-violet-500",  ring: "ring-violet-100",  btn: "from-violet-600 to-purple-500 hover:from-violet-500 hover:to-purple-400 shadow-violet-200 hover:shadow-violet-300", progress: "from-violet-600 via-purple-500 to-indigo-600" },
-  teal:    { bg: "bg-teal-50",    icon: "text-teal-600",    border: "border-teal-500",    ring: "ring-teal-100",    btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300",    progress: "from-blue-600 via-blue-500 to-indigo-600" },
-  purple:  { bg: "bg-purple-50",  icon: "text-purple-600",  border: "border-purple-500",  ring: "ring-purple-100",  btn: "from-violet-600 to-purple-500 hover:from-violet-500 hover:to-purple-400 shadow-violet-200 hover:shadow-violet-300", progress: "from-violet-600 via-purple-500 to-indigo-600" },
-  rose:    { bg: "bg-rose-50",    icon: "text-rose-600",    border: "border-rose-500",    ring: "ring-rose-100",    btn: "from-violet-600 to-purple-500 hover:from-violet-500 hover:to-purple-400 shadow-violet-200 hover:shadow-violet-300", progress: "from-violet-600 via-purple-500 to-indigo-600" },
-  amber:   { bg: "bg-amber-50",   icon: "text-amber-600",   border: "border-amber-500",   ring: "ring-amber-100",   btn: "from-violet-600 to-purple-500 hover:from-violet-500 hover:to-purple-400 shadow-violet-200 hover:shadow-violet-300", progress: "from-violet-600 via-purple-500 to-indigo-600" },
-  emerald: { bg: "bg-emerald-50", icon: "text-emerald-600", border: "border-emerald-500", ring: "ring-emerald-100", btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300",    progress: "from-blue-600 via-blue-500 to-indigo-600" },
+  blue: { bg: "bg-blue-50", icon: "text-blue-600", border: "border-blue-500", ring: "ring-blue-100", btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300", progress: "from-blue-600 via-blue-500 to-indigo-600" },
+  indigo: { bg: "bg-indigo-50", icon: "text-indigo-600", border: "border-indigo-500", ring: "ring-indigo-100", btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300", progress: "from-blue-600 via-blue-500 to-indigo-600" },
+  cyan: { bg: "bg-cyan-50", icon: "text-cyan-600", border: "border-cyan-500", ring: "ring-cyan-100", btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300", progress: "from-blue-600 via-blue-500 to-indigo-600" },
+  violet: { bg: "bg-violet-50", icon: "text-violet-600", border: "border-violet-500", ring: "ring-violet-100", btn: "from-violet-600 to-purple-500 hover:from-violet-500 hover:to-purple-400 shadow-violet-200 hover:shadow-violet-300", progress: "from-violet-600 via-purple-500 to-indigo-600" },
+  teal: { bg: "bg-teal-50", icon: "text-teal-600", border: "border-teal-500", ring: "ring-teal-100", btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300", progress: "from-blue-600 via-blue-500 to-indigo-600" },
+  purple: { bg: "bg-purple-50", icon: "text-purple-600", border: "border-purple-500", ring: "ring-purple-100", btn: "from-violet-600 to-purple-500 hover:from-violet-500 hover:to-purple-400 shadow-violet-200 hover:shadow-violet-300", progress: "from-violet-600 via-purple-500 to-indigo-600" },
+  rose: { bg: "bg-rose-50", icon: "text-rose-600", border: "border-rose-500", ring: "ring-rose-100", btn: "from-violet-600 to-purple-500 hover:from-violet-500 hover:to-purple-400 shadow-violet-200 hover:shadow-violet-300", progress: "from-violet-600 via-purple-500 to-indigo-600" },
+  amber: { bg: "bg-amber-50", icon: "text-amber-600", border: "border-amber-500", ring: "ring-amber-100", btn: "from-violet-600 to-purple-500 hover:from-violet-500 hover:to-purple-400 shadow-violet-200 hover:shadow-violet-300", progress: "from-violet-600 via-purple-500 to-indigo-600" },
+  emerald: { bg: "bg-emerald-50", icon: "text-emerald-600", border: "border-emerald-500", ring: "ring-emerald-100", btn: "from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-blue-200 hover:shadow-blue-300", progress: "from-blue-600 via-blue-500 to-indigo-600" },
 };
 
 const advancedProgressGradient = "from-violet-600 via-purple-500 to-indigo-600";
-const simpleProgressGradient   = "from-blue-600 via-blue-500 to-indigo-600";
+const simpleProgressGradient = "from-blue-600 via-blue-500 to-indigo-600";
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function DiabetesTestPage() {
@@ -273,20 +273,35 @@ export default function DiabetesTestPage() {
           ];
         }
 
-        // Must type guard activeTest since we know it's "simple" | "advanced" here
+        console.log("[Screening] Submitting:", { screening_type: activeTest, answers });
+
         const res = await screeningApi.predictRisk(activeTest as "simple" | "advanced", answers);
-        
-        const riskLevelCap = res.risk_level.charAt(0).toUpperCase() + res.risk_level.slice(1);
-        
-        setRiskResult({ 
-          score: Math.round(res.risk_score || 0), 
-          maxScore: 100, 
-          riskLevel: riskLevelCap 
+
+        console.log("[Screening] API response:", res);
+
+        const rawScore = parseFloat(String(res.risk_score ?? 0));
+        const score = isNaN(rawScore) ? 0 : Math.round(rawScore);
+        const riskLevelCap = (res.risk_level || "low").charAt(0).toUpperCase() + (res.risk_level || "low").slice(1);
+
+        console.log("[Screening] Parsed score:", score, "riskLevel:", riskLevelCap);
+
+        setRiskResult({
+          score,
+          maxScore: 100,
+          riskLevel: riskLevelCap
         });
-        
+
         setPageState((res.risk_level === "moderate" || res.risk_level === "high") ? "result-positive" : "result-negative");
       } catch (err: any) {
-        alert("Failed to calculate risk. Please try again.");
+        console.error("[Screening] Error:", err?.response?.status, err?.response?.data, err);
+        const status = err?.response?.status;
+        const detail = err?.response?.data?.detail || err?.message || "Unknown error";
+        const message = status === 503
+          ? "AI models are still loading. Please wait 10 seconds and try again."
+          : status === 422
+            ? "Invalid input data. Please check your answers and try again."
+            : `Failed to calculate risk: ${detail}`;
+        alert(message);
       } finally {
         setLoadingResult(false);
       }
@@ -528,9 +543,8 @@ export default function DiabetesTestPage() {
 
             {/* Header */}
             <div className="text-center mb-8">
-              <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold mb-4 ${
-                activeTest === "advanced" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
-              }`}>
+              <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold mb-4 ${activeTest === "advanced" ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700"
+                }`}>
                 {activeTest === "advanced" ? <Brain className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
                 {activeTest === "advanced" ? "Advanced Analysis · 8 Questions" : "Simple Screening · 5 Questions"}
               </div>
@@ -564,11 +578,10 @@ export default function DiabetesTestPage() {
                   {activeSteps.map((s, i) => (
                     <div
                       key={s.id}
-                      className={`rounded-full transition-all duration-300 ${
-                        i === currentStep ? "w-6 h-2 bg-white"
-                        : i < currentStep ? "w-2 h-2 bg-white/60"
-                        : "w-2 h-2 bg-white/25"
-                      }`}
+                      className={`rounded-full transition-all duration-300 ${i === currentStep ? "w-6 h-2 bg-white"
+                          : i < currentStep ? "w-2 h-2 bg-white/60"
+                            : "w-2 h-2 bg-white/25"
+                        }`}
                     />
                   ))}
                 </div>
@@ -601,11 +614,10 @@ export default function DiabetesTestPage() {
                         onKeyDown={handleKeyDown}
                         placeholder={step.placeholder}
                         autoFocus
-                        className={`w-full px-5 py-4 pr-24 border-2 rounded-2xl text-slate-900 placeholder-slate-300 focus:outline-none transition-all text-lg ${
-                          currentValue
+                        className={`w-full px-5 py-4 pr-24 border-2 rounded-2xl text-slate-900 placeholder-slate-300 focus:outline-none transition-all text-lg ${currentValue
                             ? `${colors.border} ring-4 ${colors.ring} focus:${colors.border}`
                             : "border-slate-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
-                        }`}
+                          }`}
                         style={{ fontWeight: 600 }}
                       />
                       <span className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">
@@ -636,11 +648,10 @@ export default function DiabetesTestPage() {
                           onKeyDown={handleKeyDown}
                           placeholder={input.placeholder}
                           autoFocus={input.field === "height"}
-                          className={`w-full px-5 py-4 pr-24 border-2 rounded-2xl text-slate-900 placeholder-slate-300 focus:outline-none transition-all text-lg ${
-                            input.value
+                          className={`w-full px-5 py-4 pr-24 border-2 rounded-2xl text-slate-900 placeholder-slate-300 focus:outline-none transition-all text-lg ${input.value
                               ? `${colors.border} ring-4 ${colors.ring} focus:${colors.border}`
                               : "border-slate-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
-                          }`}
+                            }`}
                           style={{ fontWeight: 600 }}
                         />
                         <span className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">
@@ -680,11 +691,10 @@ export default function DiabetesTestPage() {
                       <button
                         key={opt.value}
                         onClick={() => updateField(step.field, opt.value)}
-                        className={`w-full px-5 py-4 rounded-2xl border-2 text-left transition-all duration-150 ${
-                          currentValue === opt.value
+                        className={`w-full px-5 py-4 rounded-2xl border-2 text-left transition-all duration-150 ${currentValue === opt.value
                             ? `${colors.border} ${colors.bg} ring-4 ${colors.ring}`
                             : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center justify-between">
                           <div>
@@ -699,10 +709,9 @@ export default function DiabetesTestPage() {
                             )}
                           </div>
                           {currentValue === opt.value && (
-                            <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
-                              step.color === "violet" || step.color === "purple" || step.color === "rose" || step.color === "amber"
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${step.color === "violet" || step.color === "purple" || step.color === "rose" || step.color === "amber"
                                 ? "bg-violet-500" : "bg-blue-500"
-                            }`}>
+                              }`}>
                               <CheckCircle className="w-4 h-4 text-white" />
                             </div>
                           )}
@@ -724,11 +733,10 @@ export default function DiabetesTestPage() {
                   <button
                     onClick={handleNext}
                     disabled={!isValid || loadingResult}
-                    className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-sm transition-all duration-200 ${
-                      isValid && !loadingResult
+                    className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-sm transition-all duration-200 ${isValid && !loadingResult
                         ? `bg-gradient-to-r ${btnGradient} text-white shadow-lg hover:-translate-y-0.5`
                         : "bg-slate-100 text-slate-400 cursor-not-allowed"
-                    }`}
+                      }`}
                   >
                     {loadingResult ? (
                       <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</>
@@ -784,11 +792,10 @@ export default function DiabetesTestPage() {
                   </h2>
                   {riskResult && (
                     <div className="inline-flex items-center gap-2 mb-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                        riskResult.riskLevel === "High" ? "bg-red-100 text-red-700"
-                        : riskResult.riskLevel === "Moderate" ? "bg-amber-100 text-amber-700"
-                        : "bg-orange-100 text-orange-700"
-                      }`}>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${riskResult.riskLevel === "High" ? "bg-red-100 text-red-700"
+                          : riskResult.riskLevel === "Moderate" ? "bg-amber-100 text-amber-700"
+                            : "bg-orange-100 text-orange-700"
+                        }`}>
                         {riskResult.riskLevel} Risk
                       </span>
                       {activeTest === "advanced" && (

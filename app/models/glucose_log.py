@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, Integer, Numeric, String, DateTime
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -9,7 +9,7 @@ from .database import Base
 class GlucoseLog(Base):
     __tablename__ = "glucose_logs"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     patient_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("patients.id", ondelete="CASCADE"), nullable=False
     )

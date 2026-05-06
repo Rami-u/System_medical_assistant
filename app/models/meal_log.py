@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -9,7 +9,7 @@ from .database import Base
 class MealLog(Base):
     __tablename__ = "meal_logs"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     patient_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("patients.id", ondelete="CASCADE"), nullable=False
     )
@@ -32,9 +32,9 @@ class MealLog(Base):
 class MealDetectedItem(Base):
     __tablename__ = "meal_detected_items"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     meal_log_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("meal_logs.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("meal_logs.id", ondelete="CASCADE"), nullable=False
     )
     food_name: Mapped[str] = mapped_column(String(150), nullable=False)
     confidence_pct: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)

@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, Numeric, ForeignKey
+from sqlalchemy import Column, Integer, String, Numeric, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -6,7 +6,7 @@ from .database import Base
 class HealthPreferences(Base):
     __tablename__ = "health_preferences"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     patient_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, unique=True
     )

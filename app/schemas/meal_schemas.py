@@ -14,7 +14,7 @@ class MealDetectedItemCreate(BaseModel):
     confidence_pct: Optional[float] = Field(None, ge=0, le=100)
     quantity_desc: Optional[str] = Field(None, max_length=100)
     carbs_g: Optional[float] = None
-    calories: Optional[int] = None
+    calories: Optional[float] = None
     protein_g: Optional[float] = None
     fat_g: Optional[float] = None
 
@@ -29,7 +29,7 @@ class MealDetectedItemResponse(BaseModel):
     confidence_pct: Optional[float] = None
     quantity_desc: Optional[str] = None
     carbs_g: Optional[float] = None
-    calories: Optional[int] = None
+    calories: Optional[float] = None
     protein_g: Optional[float] = None
     fat_g: Optional[float] = None
 
@@ -41,7 +41,7 @@ class MealLogCreate(BaseModel):
     meal_name: Optional[str] = Field(None, max_length=150)
     image_url: Optional[str] = Field(None, max_length=500)
     total_carbs_g: Optional[float] = None
-    total_calories: Optional[int] = None
+    total_calories: Optional[float] = None
     meal_time: datetime
     detected_items: list[MealDetectedItemCreate] = Field(default_factory=list)
 
@@ -56,7 +56,7 @@ class MealLogResponse(BaseModel):
     meal_name: Optional[str] = None
     image_url: Optional[str] = None
     total_carbs_g: Optional[float] = None
-    total_calories: Optional[int] = None
+    total_calories: Optional[float] = None
     meal_time: datetime
     created_at: datetime
     detected_items: list[MealDetectedItemResponse] = Field(default_factory=list)

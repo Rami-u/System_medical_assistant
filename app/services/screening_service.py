@@ -234,7 +234,7 @@ def predict_and_save_screening(
     answers are persisted to the database.  Otherwise the prediction
     is returned without saving (anonymous / public usage).
     """
-    if not AIModelService.models_ready():
+    if not AIModelService.screening_ready():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ML models are not loaded yet. Try again shortly.",
@@ -392,4 +392,3 @@ def get_screening_history(user_id: int, db: Session) -> list[ScreeningHistoryIte
         )
         
     return history
-

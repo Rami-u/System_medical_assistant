@@ -1,6 +1,11 @@
 import axiosClient from './axiosClient';
 
 export const clinicalApi = {
+  // For patients: fetch your own notes from your doctor(s)
+  getMyNotes: async () => {
+    const res = await axiosClient.get('/clinical/notes');
+    return res.data; // ClinicalNoteResponse[]
+  },
   getNotes: async (patientId: number) => {
     const res = await axiosClient.get(`/doctor/notes/${patientId}`);
     return res.data;

@@ -1,11 +1,20 @@
 import axiosClient from './axiosClient';
 
+export interface UserResponse {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  role_id: number;
+  created_at: string;
+}
+
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
   token_type: string;
   expires_in: number;
-  role: string;
+  user: UserResponse;
 }
 
 export const authApi = {
@@ -14,12 +23,26 @@ export const authApi = {
     return response.data;
   },
   registerPatient: async (data: any) => {
-    const response = await axiosClient.post('/auth/register/patient', data);
-    return response.data;
+    console.log('Registering as:', 'patient');
+    console.log('Sending data:', JSON.stringify(data));
+    try {
+      const response = await axiosClient.post('/auth/register/patient', data);
+      return response.data;
+    } catch (error: any) {
+      console.error('Full error:', error.response?.status, error.response?.data);
+      throw error;
+    }
   },
   registerDoctor: async (data: any) => {
-    const response = await axiosClient.post('/auth/register/doctor', data);
-    return response.data;
+    console.log('Registering as:', 'doctor');
+    console.log('Sending data:', JSON.stringify(data));
+    try {
+      const response = await axiosClient.post('/auth/register/doctor', data);
+      return response.data;
+    } catch (error: any) {
+      console.error('Full error:', error.response?.status, error.response?.data);
+      throw error;
+    }
   },
   me: async () => {
     const response = await axiosClient.get('/auth/me');

@@ -26,6 +26,8 @@ class Settings:
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(
         os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7")
     )
+    DOCTOR_ACCESS_KEY: str = os.getenv("DOCTOR_ACCESS_KEY", "DIACHECK-DOC-2026-SECURE")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
 
 settings = Settings()

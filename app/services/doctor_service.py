@@ -31,7 +31,21 @@ def _verify_doctor_patient(doctor_id: int, patient_id: int, db: Session) -> None
         )
 
 
-def get_dashboard(doctor_id: int, db: Session) -> schemas.DoctorDashboardResponse:
+def _resolve_doctor_id(user_id: int, db: Session) -> int:
+    """Resolve Doctor.id (doctors table PK) from users.id."""
+    doctor_id = db.execute(
+        select(Doctor.id).where(Doctor.user_id == user_id)
+    ).scalar_one_or_none()
+    if doctor_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Doctor profile not found",
+        )
+    return doctor_id
+
+
+def get_dashboard(user_id: int, db: Session) -> schemas.DoctorDashboardResponse:
+    doctor_id = _resolve_doctor_id(user_id, db)
     doctor = db.execute(select(Doctor).where(Doctor.id == doctor_id)).scalar_one_or_none()
     if not doctor:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Doctor not found")
@@ -144,7 +158,20 @@ def get_dashboard(doctor_id: int, db: Session) -> schemas.DoctorDashboardRespons
         min_g = row.min_glucose or 70
         max_g = row.max_glucose or 140
 
-        if row.latest_log_time is None or row.latest_log_time < three_days_ago:
+        # Parse latest_log_time — SQLite subqueries return strings
+        latest_log_time = row.latest_log_time
+        if isinstance(latest_log_time, str):
+            try:
+                latest_log_time = datetime.fromisoformat(latest_log_time)
+            except (ValueError, TypeError):
+                latest_log_time = None
+
+        # Ensure both sides are naive for comparison (SQLite stores naive)
+        three_days_ago_naive = three_days_ago.replace(tzinfo=None)
+        if latest_log_time is not None and latest_log_time.tzinfo is not None:
+            latest_log_time = latest_log_time.replace(tzinfo=None)
+
+        if latest_log_time is None or latest_log_time < three_days_ago_naive:
             needs_attn = True
         elif row.latest_glucose_value is not None:
             if not (min_g <= row.latest_glucose_value <= max_g):
@@ -214,7 +241,8 @@ def get_dashboard(doctor_id: int, db: Session) -> schemas.DoctorDashboardRespons
     )
 
 
-def list_patients(doctor_id: int, risk: Optional[str], search: Optional[str], db: Session) -> schemas.DoctorPatientListResponse:
+def list_patients(user_id: int, risk: Optional[str], search: Optional[str], db: Session) -> schemas.DoctorPatientListResponse:
+    doctor_id = _resolve_doctor_id(user_id, db)
     # 1. Latest Screening Subquery (for risk level)
     latest_screening_sq = (
         select(
@@ -279,7 +307,15 @@ def list_patients(doctor_id: int, risk: Optional[str], search: Optional[str], db
     for r in results:
         last_visit_str = None
         if r.last_visit_date:
-            last_visit_str = r.last_visit_date.strftime("%b %d, %Y")
+            # SQLite may return dates as strings
+            if isinstance(r.last_visit_date, str):
+                try:
+                    parsed = datetime.fromisoformat(r.last_visit_date)
+                    last_visit_str = parsed.strftime("%b %d, %Y")
+                except (ValueError, TypeError):
+                    last_visit_str = r.last_visit_date
+            else:
+                last_visit_str = r.last_visit_date.strftime("%b %d, %Y")
             
         patients_list.append(
             schemas.PatientListItem(
@@ -296,7 +332,8 @@ def list_patients(doctor_id: int, risk: Optional[str], search: Optional[str], db
     return schemas.DoctorPatientListResponse(patients=patients_list)
 
 
-def get_patient_profile(doctor_id: int, patient_id: int, db: Session) -> schemas.DoctorPatientProfileResponse:
+def get_patient_profile(user_id: int, patient_id: int, db: Session) -> schemas.DoctorPatientProfileResponse:
+    doctor_id = _resolve_doctor_id(user_id, db)
     _verify_doctor_patient(doctor_id, patient_id, db)
 
     patient = db.execute(
@@ -342,7 +379,18 @@ def get_patient_profile(doctor_id: int, patient_id: int, db: Session) -> schemas
 
     # Glucose trend (last 14 days)
     fourteen_days_ago = today - timedelta(days=14)
-    trend_logs = [g for g in glucose_logs if g.recorded_at >= fourteen_days_ago]
+    fourteen_days_ago_naive = fourteen_days_ago.replace(tzinfo=None)
+    trend_logs = []
+    for g in glucose_logs:
+        rec_at = g.recorded_at
+        if isinstance(rec_at, str):
+            try:
+                rec_at = datetime.fromisoformat(rec_at)
+            except (ValueError, TypeError):
+                continue
+        rec_at_naive = rec_at.replace(tzinfo=None) if rec_at.tzinfo else rec_at
+        if rec_at_naive >= fourteen_days_ago_naive:
+            trend_logs.append(g)
     # Group by date locally
     daily_glucose = {}
     for g in trend_logs:
@@ -367,9 +415,19 @@ def get_patient_profile(doctor_id: int, patient_id: int, db: Session) -> schemas
     # Weekly avg (last 4 weeks)
     weekly_avg_glucose = []
     for i in range(4):
-        start_date = today - timedelta(days=(i+1)*7)
-        end_date = today - timedelta(days=i*7)
-        week_logs = [g for g in glucose_logs if start_date <= g.recorded_at < end_date]
+        start_date = (today - timedelta(days=(i+1)*7)).replace(tzinfo=None)
+        end_date = (today - timedelta(days=i*7)).replace(tzinfo=None)
+        week_logs = []
+        for g in glucose_logs:
+            rec_at = g.recorded_at
+            if isinstance(rec_at, str):
+                try:
+                    rec_at = datetime.fromisoformat(rec_at)
+                except (ValueError, TypeError):
+                    continue
+            rec_naive = rec_at.replace(tzinfo=None) if rec_at.tzinfo else rec_at
+            if start_date <= rec_naive < end_date:
+                week_logs.append(g)
         if week_logs:
             w_avg = int(sum(float(g.glucose_value) for g in week_logs) / len(week_logs))
             weekly_avg_glucose.append(schemas.WeeklyAvgPoint(week=f"Wk {i+1}", avg=w_avg))
@@ -377,7 +435,18 @@ def get_patient_profile(doctor_id: int, patient_id: int, db: Session) -> schemas
 
     # Daily carbs (last 7 days)
     seven_days_ago = today - timedelta(days=7)
-    recent_meals = [m for m in meal_logs if m.meal_time >= seven_days_ago]
+    seven_days_ago_naive = seven_days_ago.replace(tzinfo=None)
+    recent_meals = []
+    for m in meal_logs:
+        mt = m.meal_time
+        if isinstance(mt, str):
+            try:
+                mt = datetime.fromisoformat(mt)
+            except (ValueError, TypeError):
+                continue
+        mt_naive = mt.replace(tzinfo=None) if mt.tzinfo else mt
+        if mt_naive >= seven_days_ago_naive:
+            recent_meals.append(m)
     daily_carbs = {}
     for m in recent_meals:
         d_str = m.meal_time.strftime("%a")
@@ -441,7 +510,8 @@ def get_patient_profile(doctor_id: int, patient_id: int, db: Session) -> schemas
     )
 
 
-def get_patient_glucose(doctor_id: int, patient_id: int, db: Session, days: int) -> list[dict]:
+def get_patient_glucose(user_id: int, patient_id: int, db: Session, days: int) -> list[dict]:
+    doctor_id = _resolve_doctor_id(user_id, db)
     _verify_doctor_patient(doctor_id, patient_id, db)
     
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -470,7 +540,8 @@ def get_patient_glucose(doctor_id: int, patient_id: int, db: Session, days: int)
     ]
 
 
-def create_doctor_note(doctor_id: int, data: schemas.DoctorNoteCreate, db: Session) -> schemas.DoctorNoteResponse:
+def create_doctor_note(user_id: int, data: schemas.DoctorNoteCreate, db: Session) -> schemas.DoctorNoteResponse:
+    doctor_id = _resolve_doctor_id(user_id, db)
     _verify_doctor_patient(doctor_id, data.patient_id, db)
     
     note = ClinicalNote(
@@ -494,7 +565,8 @@ def create_doctor_note(doctor_id: int, data: schemas.DoctorNoteCreate, db: Sessi
     )
 
 
-def list_doctor_notes(doctor_id: int, patient_id: int, db: Session) -> list[schemas.DoctorNoteResponse]:
+def list_doctor_notes(user_id: int, patient_id: int, db: Session) -> list[schemas.DoctorNoteResponse]:
+    doctor_id = _resolve_doctor_id(user_id, db)
     _verify_doctor_patient(doctor_id, patient_id, db)
     
     stmt = (
@@ -519,7 +591,8 @@ def list_doctor_notes(doctor_id: int, patient_id: int, db: Session) -> list[sche
     ]
 
 
-def get_doctor_alerts(doctor_id: int, db: Session) -> list[schemas.DoctorAlertResponse]:
+def get_doctor_alerts(user_id: int, db: Session) -> list[schemas.DoctorAlertResponse]:
+    doctor_id = _resolve_doctor_id(user_id, db)
     stmt = (
         select(Alert, Patient)
         .join(Patient, Patient.id == Alert.patient_id)
@@ -551,7 +624,8 @@ def get_doctor_alerts(doctor_id: int, db: Session) -> list[schemas.DoctorAlertRe
     ]
 
 
-def mark_alert_read(doctor_id: int, alert_id: int, db: Session) -> dict:
+def mark_alert_read(user_id: int, alert_id: int, db: Session) -> dict:
+    doctor_id = _resolve_doctor_id(user_id, db)
     stmt = (
         select(Alert)
         .join(doctor_patient_table, doctor_patient_table.c.patient_id == Alert.patient_id)
@@ -564,7 +638,7 @@ def mark_alert_read(doctor_id: int, alert_id: int, db: Session) -> dict:
     
     if not alert:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Alert not found or does not belong to a patient of this doctor",
         )
         

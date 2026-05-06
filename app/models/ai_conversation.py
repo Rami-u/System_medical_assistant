@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -9,7 +9,7 @@ from .database import Base
 class AiConversation(Base):
     __tablename__ = "ai_conversations"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     patient_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("patients.id", ondelete="CASCADE"), nullable=False
     )
@@ -28,7 +28,7 @@ class AiConversation(Base):
 class AiMessage(Base):
     __tablename__ = "ai_messages"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     conversation_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("ai_conversations.id", ondelete="CASCADE"),

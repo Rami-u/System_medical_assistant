@@ -2,11 +2,12 @@ import axiosClient from './axiosClient';
 
 export const alertsApi = {
   getPatientAlerts: async () => {
-    const res = await axiosClient.get('/alerts');
+    const res = await axiosClient.get('/alerts/');
     return res.data;
   },
   markPatientAlertRead: async (id: number) => {
-    const res = await axiosClient.put(`/alerts/${id}/read`);
+    // Backend expects PATCH /alerts/read with body { alert_ids: [id] }
+    const res = await axiosClient.patch('/alerts/read', { alert_ids: [id] });
     return res.data;
   },
   getDoctorAlerts: async () => {

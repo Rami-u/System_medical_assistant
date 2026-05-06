@@ -10,6 +10,7 @@ export const doctorApi = {
     if (risk) params.append('risk', risk);
     if (search) params.append('search', search);
     const res = await axiosClient.get(`/doctor/patients?${params.toString()}`);
+    console.log("Patients response:", res.data);
     return res.data;
   },
   getPatientProfile: async (id: number) => {

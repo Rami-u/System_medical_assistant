@@ -77,14 +77,14 @@ function SignInForm({ onSwitch }: { onSwitch: () => void }) {
               type="button"
               className="underline font-semibold hover:opacity-80 transition-opacity"
               onClick={() => {
-                setEmail(role === "doctor" ? "doctor@demo.com" : "patient@demo.com");
-                setPassword("demo123");
+                setEmail(role === "doctor" ? "dr.sarah@diacheck.com" : "lina@diacheck.com");
+                setPassword(role === "doctor" ? "Doctor123" : "Patient123");
               }}
             >
               Click to autofill
             </button>
             {" "}or use{" "}
-            <strong>{role === "doctor" ? "doctor@demo.com" : "patient@demo.com"}</strong> / <strong>demo123</strong>
+            <strong>{role === "doctor" ? "dr.sarah@diacheck.com" : "lina@diacheck.com"}</strong> / <strong>{role === "doctor" ? "Doctor123" : "Patient123"}</strong>
           </span>
         </div>
       </div>
@@ -236,7 +236,7 @@ function RegistrationSuccessPopup({
 function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
   const { register } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "", dob: "", role: "patient" as UserRole });
+  const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "", dob: "", role: "patient" as UserRole, doctorAccessKey: "" });
   const [showPass, setShowPass] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState("");
@@ -249,9 +249,12 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
     if (!form.name.trim()) return "Please enter your full name.";
     if (!form.email) return "Please enter your email address.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return "Please enter a valid email address.";
-    if (form.password.length < 6) return "Password must be at least 6 characters.";
+    if (form.password.length < 8) return "Password must be at least 8 characters.";
+    if (!/[A-Z]/.test(form.password)) return "Password must contain at least one uppercase letter.";
+    if (!/[0-9]/.test(form.password)) return "Password must contain at least one digit.";
     if (form.password !== form.confirm) return "Passwords do not match.";
-    if (!form.dob) return "Please enter your date of birth.";
+    if (form.role === "patient" && !form.dob) return "Please enter your date of birth.";
+    if (form.role === "doctor" && !form.doctorAccessKey.trim()) return "Doctor access key is required.";
     return null;
   };
 
@@ -261,9 +264,13 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
     if (err) { setError(err); return; }
     setError("");
     setLoading(true);
-    const result = await register({ name: form.name, email: form.email, password: form.password, dob: form.dob, role: form.role });
+    const result = await register({ name: form.name, email: form.email, password: form.password, dob: form.dob, role: form.role, doctorAccessKey: form.doctorAccessKey });
     setLoading(false);
-    if (!result.success) { setError(result.error || "Registration failed."); return; }
+    if (!result.success) {
+      const errorMsg = result.error || "Registration failed. Please try again.";
+      setError(errorMsg);
+      return;
+    }
     const dest = result.role === "doctor" ? "/dashboard/doctor" : "/dashboard/patient";
     setSuccessData({ name: form.name, role: result.role!, dest });
   };
@@ -357,6 +364,21 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
             />
           </div>
 
+          {/* Doctor Access Key — only shown for doctor role */}
+          {form.role === "doctor" && (
+          <div>
+            <label className="block text-sm text-slate-700 mb-1.5" style={{ fontWeight: 600 }}>Doctor Access Key</label>
+            <input
+              type="password"
+              value={form.doctorAccessKey}
+              onChange={(e) => update("doctorAccessKey", e.target.value)}
+              placeholder="Enter your authorization key"
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+            />
+            <p className="text-xs text-slate-400 mt-1">Contact your hospital admin to obtain this key.</p>
+          </div>
+          )}
+
           {/* Password */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -366,7 +388,7 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
                   type={showPass ? "text" : "password"}
                   value={form.password}
                   onChange={(e) => update("password", e.target.value)}
-                  placeholder="Min 6 chars"
+                  placeholder="Min 8 chars (A-Z, 0-9)"
                   className="w-full px-3 py-3 pr-10 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm"
                 />
                 <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">

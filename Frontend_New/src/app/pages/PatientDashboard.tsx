@@ -14,6 +14,9 @@ import {
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import { patientApi } from "../../api/patientApi";
+import { glucoseApi } from "../../api/glucoseApi";
+import { mealApi } from "../../api/mealApi";
+import { clinicalApi } from "../../api/clinicalApi";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ClinicalNote {
@@ -26,50 +29,7 @@ interface ClinicalNote {
   doctorName: string;
 }
 
-// Demo: show notes written for patient P-2847 (John Anderson) as the logged-in patient
-const DEMO_PATIENT_ID = "P-2847";
-const NOTES_KEY = "diacheck_clinical_notes";
 
-const mockDoctorNotes: ClinicalNote[] = [
-  {
-    id: "mock-note-001",
-    patientId: DEMO_PATIENT_ID,
-    text: "Your glucose readings have been consistently elevated post-meal this week, averaging 165 mg/dL. Please avoid high-carb meals such as white rice, bread, and sugary drinks. Aim to walk for 15–20 minutes after each meal to help lower post-meal spikes. Continue taking Metformin with food as prescribed.",
-    priority: "urgent",
-    date: "Apr 30, 2026",
-    time: "11:20 AM",
-    doctorName: "Dr. Sarah Chen",
-  },
-  {
-    id: "mock-note-002",
-    patientId: DEMO_PATIENT_ID,
-    text: "Great progress on your fasting glucose levels — they've dropped from 138 mg/dL to 112 mg/dL over the past two weeks. Keep up the dietary changes and regular logging. Schedule your next HbA1c lab test within the next 10 days so we can review your 3-month average at our upcoming appointment.",
-    priority: "routine",
-    date: "Apr 25, 2026",
-    time: "2:45 PM",
-    doctorName: "Dr. Sarah Chen",
-  },
-  {
-    id: "mock-note-003",
-    patientId: DEMO_PATIENT_ID,
-    text: "I noticed a hypoglycemic event recorded on Apr 18 (52 mg/dL). Please ensure you always carry fast-acting glucose (juice or glucose tablets) with you. If this happens again, consume 15g of carbs immediately and recheck in 15 minutes. Do not skip meals.",
-    priority: "critical",
-    date: "Apr 19, 2026",
-    time: "9:05 AM",
-    doctorName: "Dr. Sarah Chen",
-  },
-];
-
-function loadDoctorNotes(): ClinicalNote[] {
-  try {
-    const all: ClinicalNote[] = JSON.parse(localStorage.getItem(NOTES_KEY) || "[]");
-    const saved = all.filter(n => n.patientId === DEMO_PATIENT_ID);
-    // Merge saved notes on top of mock notes, avoiding duplicates by id
-    const savedIds = new Set(saved.map(n => n.id));
-    const mocks = mockDoctorNotes.filter(n => !savedIds.has(n.id));
-    return [...saved, ...mocks];
-  } catch { return mockDoctorNotes; }
-}
 
 type ConditionStatus = "Critical" | "Mid" | "Low";
 type LogType = "glucose" | "meal" | "alert";
@@ -82,14 +42,6 @@ interface ActivityLog {
   time: string;
   trend?: "up" | "down" | "stable";
 }
-
-// ─── Mock Data ────────────────────────────────────────────────────────────────
-const initialActivity: ActivityLog[] = [
-  { id: 1, type: "glucose", title: "Fasting Glucose Logged", detail: "112 mg/dL", time: "Today, 7:30 AM", trend: "up" },
-  { id: 2, type: "meal",    title: "Breakfast Logged",       detail: "Oatmeal + fruit · ~65g carbs", time: "Today, 8:10 AM" },
-  { id: 3, type: "glucose", title: "Post-meal Glucose",      detail: "148 mg/dL", time: "Today, 10:00 AM", trend: "up" },
-  { id: 4, type: "meal",    title: "Lunch Logged",            detail: "Grilled chicken + rice · ~80g carbs", time: "Yesterday, 1:00 PM" },
-];
 
 const notifications = [
   { id: 1, type: "doctor",  text: "Dr. Sarah Chen responded to your weekly report.", time: "30 min ago", unread: true },
@@ -337,70 +289,47 @@ function ActivityIcon({ type }: { type: LogType }) {
   );
 }
 
-// ─── Chart Mock Data ──────────────────────────────────────────────────────────
+// ─── Chart helpers (build from real API logs) ─────────────────────────────────
 type ChartPeriod = 7 | 30 | 90;
 
-const chartData: Record<ChartPeriod, { date: string; glucose: number; carbs: number; avgGlucose?: number }[]> = {
-  7: [
-    { date: "Apr 24", glucose: 118, carbs: 52 },
-    { date: "Apr 25", glucose: 142, carbs: 68 },
-    { date: "Apr 26", glucose: 103, carbs: 45 },
-    { date: "Apr 27", glucose: 137, carbs: 71 },
-    { date: "Apr 28", glucose: 125, carbs: 58 },
-    { date: "Apr 29", glucose: 151, carbs: 80 },
-    { date: "Apr 30", glucose: 112, carbs: 65 },
-  ],
-  30: [
-    { date: "Apr 1",  glucose: 108, carbs: 48 },
-    { date: "Apr 3",  glucose: 121, carbs: 55 },
-    { date: "Apr 5",  glucose: 134, carbs: 63 },
-    { date: "Apr 7",  glucose: 119, carbs: 50 },
-    { date: "Apr 9",  glucose: 145, carbs: 72 },
-    { date: "Apr 11", glucose: 128, carbs: 58 },
-    { date: "Apr 13", glucose: 116, carbs: 47 },
-    { date: "Apr 15", glucose: 139, carbs: 66 },
-    { date: "Apr 17", glucose: 122, carbs: 54 },
-    { date: "Apr 19", glucose: 148, carbs: 75 },
-    { date: "Apr 21", glucose: 131, carbs: 61 },
-    { date: "Apr 23", glucose: 114, carbs: 49 },
-    { date: "Apr 25", glucose: 142, carbs: 68 },
-    { date: "Apr 27", glucose: 137, carbs: 71 },
-    { date: "Apr 30", glucose: 112, carbs: 65 },
-  ],
-  90: [
-    { date: "Feb 2",  glucose: 138, carbs: 67 },
-    { date: "Feb 9",  glucose: 145, carbs: 72 },
-    { date: "Feb 16", glucose: 132, carbs: 60 },
-    { date: "Feb 23", glucose: 141, carbs: 68 },
-    { date: "Mar 2",  glucose: 129, carbs: 58 },
-    { date: "Mar 9",  glucose: 136, carbs: 63 },
-    { date: "Mar 16", glucose: 124, carbs: 55 },
-    { date: "Mar 23", glucose: 133, carbs: 62 },
-    { date: "Mar 30", glucose: 127, carbs: 57 },
-    { date: "Apr 6",  glucose: 131, carbs: 61 },
-    { date: "Apr 13", glucose: 118, carbs: 51 },
-    { date: "Apr 20", glucose: 135, carbs: 64 },
-    { date: "Apr 30", glucose: 112, carbs: 65 },
-  ],
-};
+/** Group glucose logs by day → [{date, glucose}] sorted oldest→newest */
+function buildGlucoseChart(logs: any[], periodDays: number) {
+  const cutoff = Date.now() - periodDays * 86_400_000;
+  const byDay = new Map<string, { sortKey: number; sum: number; count: number }>();
+  logs
+    .filter(l => new Date(l.recorded_at).getTime() >= cutoff)
+    .forEach(l => {
+      const dt = new Date(l.recorded_at); dt.setHours(0, 0, 0, 0);
+      const key = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const e = byDay.get(key) ?? { sortKey: dt.getTime(), sum: 0, count: 0 };
+      e.sum += l.glucose_value; e.count++;
+      byDay.set(key, e);
+    });
+  return [...byDay.entries()]
+    .sort((a, b) => a[1].sortKey - b[1].sortKey)
+    .map(([date, e]) => ({ date, glucose: Math.round(e.sum / e.count) }));
+}
 
-function getPeriodStats(data: typeof chartData[7]) {
-  const glucoseVals = data.map(d => d.glucose);
-  const carbVals    = data.map(d => d.carbs);
-  const avg   = Math.round(glucoseVals.reduce((a, b) => a + b, 0) / glucoseVals.length);
-  const max   = Math.max(...glucoseVals);
-  const min   = Math.min(...glucoseVals);
-  const inRange = glucoseVals.filter(v => v >= 70 && v <= 140).length;
-  const tir   = Math.round((inRange / glucoseVals.length) * 100);
-  const avgCarbs = Math.round(carbVals.reduce((a, b) => a + b, 0) / carbVals.length);
-  const trend: "up" | "down" | "stable" =
-    glucoseVals[glucoseVals.length - 1] > glucoseVals[0] + 5 ? "up"
-    : glucoseVals[glucoseVals.length - 1] < glucoseVals[0] - 5 ? "down"
-    : "stable";
-  return { avg, max, min, tir, avgCarbs, trend };
+/** Group meal logs by day → [{date, carbs}] sorted oldest→newest */
+function buildCarbChart(logs: any[], periodDays: number) {
+  const cutoff = Date.now() - periodDays * 86_400_000;
+  const byDay = new Map<string, { sortKey: number; carbs: number }>();
+  logs
+    .filter(l => new Date(l.meal_time).getTime() >= cutoff)
+    .forEach(l => {
+      const dt = new Date(l.meal_time); dt.setHours(0, 0, 0, 0);
+      const key = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const e = byDay.get(key) ?? { sortKey: dt.getTime(), carbs: 0 };
+      e.carbs += (l.total_carbs_g || 0);
+      byDay.set(key, e);
+    });
+  return [...byDay.entries()]
+    .sort((a, b) => a[1].sortKey - b[1].sortKey)
+    .map(([date, e]) => ({ date, carbs: Math.round(e.carbs) }));
 }
 
 // ─── Custom Tooltips ──────────────────────────────────────────────────────────
+
 const GlucoseChartTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   const val = payload[0].value;
@@ -432,18 +361,25 @@ export default function PatientDashboard() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [modal, setModal] = useState<"glucose" | "meal" | null>(null);
-  
-  // Real API Data states
+
+  // Dashboard summary (today_avg_glucose, last_meal_time, risk_level)
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Local UI states
-  const [activity, setActivity] = useState<ActivityLog[]>(initialActivity);
+
+  // Chart + notes real data
+  const [glucoseLogs, setGlucoseLogs] = useState<any[]>([]);
+  const [mealLogs, setMealLogs] = useState<any[]>([]);
+  const [glucoseStats, setGlucoseStats] = useState<any | null>(null);
+  const [doctorNotes, setDoctorNotes] = useState<any[]>([]);
+  const [chartLoading, setChartLoading] = useState(false);
+
+  // Local UI
+  const [activity, setActivity] = useState<ActivityLog[]>([]);
   const [notifRead, setNotifRead] = useState<number[]>([]);
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>(7);
-  const [doctorNotes, setDoctorNotes] = useState<ClinicalNote[]>([]);
 
+  // 1️⃣ Dashboard summary
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -457,12 +393,36 @@ export default function PatientDashboard() {
       }
     };
     fetchData();
-
-    setDoctorNotes(loadDoctorNotes());
-    const onStorage = () => setDoctorNotes(loadDoctorNotes());
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  // 2️⃣ Doctor notes (real API)
+  useEffect(() => {
+    clinicalApi.getMyNotes()
+      .then(notes => setDoctorNotes(Array.isArray(notes) ? notes : []))
+      .catch(err => console.error("Notes fetch error:", err));
+  }, []);
+
+  // 3️⃣ Chart data — re-fetches whenever period changes
+  useEffect(() => {
+    const fetchChartData = async () => {
+      setChartLoading(true);
+      try {
+        const [glucoseRes, statsRes, mealRes] = await Promise.all([
+          glucoseApi.getLogs(100),
+          glucoseApi.getStats(chartPeriod),
+          mealApi.getMealLogs(100),
+        ]);
+        setGlucoseLogs(Array.isArray(glucoseRes) ? glucoseRes : []);
+        setGlucoseStats(statsRes ?? null);
+        setMealLogs(Array.isArray(mealRes) ? mealRes : []);
+      } catch (err) {
+        console.error("Chart data error:", err);
+      } finally {
+        setChartLoading(false);
+      }
+    };
+    fetchChartData();
+  }, [chartPeriod]);
 
   if (loading) {
     return (
@@ -704,9 +664,15 @@ export default function PatientDashboard() {
 
             {/* ── Health Trends Charts ──────────────────────────────────────── */}
             {(() => {
-              const data  = chartData[chartPeriod];
-              const stats = getPeriodStats(data);
+              const glucoseChartData = buildGlucoseChart(glucoseLogs, chartPeriod);
+              const carbChartData    = buildCarbChart(mealLogs, chartPeriod);
+              const statsAvg      = glucoseStats ? Math.round(glucoseStats.average)      : null;
+              const statsTir      = glucoseStats ? Math.round(glucoseStats.in_range_pct) : null;
+              const statsMax      = glucoseStats ? Math.round(glucoseStats.maximum)      : null;
+              const statsAvgCarbs = carbChartData.length > 0
+                ? Math.round(carbChartData.reduce((s, d) => s + d.carbs, 0) / carbChartData.length) : null;
               return (
+
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                   {/* Header + Period Toggle */}
                   <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-50 flex-wrap gap-3">
@@ -736,27 +702,27 @@ export default function PatientDashboard() {
                     {[
                       {
                         label: "Avg Glucose",
-                        value: `${stats.avg} mg/dL`,
-                        color: stats.avg > 140 ? "text-red-600" : stats.avg < 70 ? "text-blue-600" : "text-emerald-600",
-                        bg:    stats.avg > 140 ? "bg-red-50"   : stats.avg < 70 ? "bg-blue-50"   : "bg-emerald-50",
+                        value: statsAvg !== null ? `${statsAvg} mg/dL` : "--",
+                        color: statsAvg === null ? "text-slate-400" : statsAvg > 140 ? "text-red-600" : statsAvg < 70 ? "text-blue-600" : "text-emerald-600",
+                        bg:    statsAvg === null ? "bg-slate-50"    : statsAvg > 140 ? "bg-red-50"   : statsAvg < 70 ? "bg-blue-50"   : "bg-emerald-50",
                       },
                       {
                         label: "Time In Range",
-                        value: `${stats.tir}%`,
-                        color: stats.tir >= 70 ? "text-emerald-600" : stats.tir >= 50 ? "text-amber-600" : "text-red-600",
-                        bg:    stats.tir >= 70 ? "bg-emerald-50"    : stats.tir >= 50 ? "bg-amber-50"    : "bg-red-50",
+                        value: statsTir !== null ? `${statsTir}%` : "--",
+                        color: statsTir === null ? "text-slate-400" : statsTir >= 70 ? "text-emerald-600" : statsTir >= 50 ? "text-amber-600" : "text-red-600",
+                        bg:    statsTir === null ? "bg-slate-50"   : statsTir >= 70 ? "bg-emerald-50"    : statsTir >= 50 ? "bg-amber-50"    : "bg-red-50",
                       },
                       {
                         label: "Peak Glucose",
-                        value: `${stats.max} mg/dL`,
-                        color: stats.max > 180 ? "text-red-600" : "text-amber-600",
-                        bg:    stats.max > 180 ? "bg-red-50"    : "bg-amber-50",
+                        value: statsMax !== null ? `${statsMax} mg/dL` : "--",
+                        color: statsMax === null ? "text-slate-400" : statsMax > 180 ? "text-red-600" : "text-amber-600",
+                        bg:    statsMax === null ? "bg-slate-50"   : statsMax > 180 ? "bg-red-50"    : "bg-amber-50",
                       },
                       {
                         label: "Avg Daily Carbs",
-                        value: `${stats.avgCarbs}g`,
-                        color: "text-blue-600",
-                        bg:    "bg-blue-50",
+                        value: statsAvgCarbs !== null ? `${statsAvgCarbs}g` : "--",
+                        color: statsAvgCarbs === null ? "text-slate-400" : "text-blue-600",
+                        bg:    statsAvgCarbs === null ? "bg-slate-50"   : "bg-blue-50",
                       },
                     ].map(({ label, value, color, bg }) => (
                       <div key={label} className={`px-5 py-3.5 border-r last:border-r-0 border-slate-50 ${bg}`}>
@@ -773,45 +739,29 @@ export default function PatientDashboard() {
                       <span className="text-slate-700 text-sm" style={{ fontWeight: 600 }}>Glucose Trend</span>
                       <span className="text-slate-300 text-xs ml-auto">Target: 70–140 mg/dL</span>
                     </div>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <AreaChart data={data} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="glucoseGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.15} />
-                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.01} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis
-                          dataKey="date"
-                          tick={{ fontSize: 11, fill: "#94a3b8" }}
-                          axisLine={false}
-                          tickLine={false}
-                          interval={chartPeriod === 7 ? 0 : chartPeriod === 30 ? 2 : 2}
-                        />
-                        <YAxis
-                          domain={[60, 200]}
-                          tick={{ fontSize: 11, fill: "#94a3b8" }}
-                          axisLine={false}
-                          tickLine={false}
-                          tickCount={5}
-                        />
-                        <Tooltip content={<GlucoseChartTooltip />} />
-                        <ReferenceLine y={140} stroke="#f59e0b" strokeDasharray="4 3" strokeWidth={1.5}
-                          label={{ value: "High", position: "right", fontSize: 10, fill: "#f59e0b" }} />
-                        <ReferenceLine y={70}  stroke="#3b82f6" strokeDasharray="4 3" strokeWidth={1.5}
-                          label={{ value: "Low",  position: "right", fontSize: 10, fill: "#3b82f6" }} />
-                        <Area
-                          type="monotone"
-                          dataKey="glucose"
-                          stroke="#3b82f6"
-                          strokeWidth={2.5}
-                          fill="url(#glucoseGrad)"
-                          dot={{ r: chartPeriod === 7 ? 4 : 2, fill: "#3b82f6", strokeWidth: 0 }}
-                          activeDot={{ r: 6, fill: "#3b82f6", stroke: "#fff", strokeWidth: 2 }}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    {glucoseChartData.length === 0 ? (
+                      <div className="flex items-center justify-center h-[200px] text-slate-400 text-sm text-center px-4">
+                        No glucose readings yet. Start logging to see your trends.
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={200}>
+                        <AreaChart data={glucoseChartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="glucoseGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.15} />
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.01} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} interval={chartPeriod === 7 ? 0 : 2} />
+                          <YAxis domain={[60, 200]} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} tickCount={5} />
+                          <Tooltip content={<GlucoseChartTooltip />} />
+                          <ReferenceLine y={140} stroke="#f59e0b" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "High", position: "right", fontSize: 10, fill: "#f59e0b" }} />
+                          <ReferenceLine y={70}  stroke="#3b82f6" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "Low",  position: "right", fontSize: 10, fill: "#3b82f6" }} />
+                          <Area type="monotone" dataKey="glucose" stroke="#3b82f6" strokeWidth={2.5} fill="url(#glucoseGrad)" dot={{ r: chartPeriod === 7 ? 4 : 2, fill: "#3b82f6", strokeWidth: 0 }} activeDot={{ r: 6, fill: "#3b82f6", stroke: "#fff", strokeWidth: 2 }} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    )}
                     {/* Range legend */}
                     <div className="flex items-center gap-4 mt-1 justify-center">
                       {[
@@ -836,34 +786,22 @@ export default function PatientDashboard() {
                       </span>
                       <span className="text-slate-300 text-xs ml-auto">Recommended: ≤ 60g / meal</span>
                     </div>
-                    <ResponsiveContainer width="100%" height={160}>
-                      <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barSize={chartPeriod === 90 ? 10 : chartPeriod === 30 ? 12 : 24}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                        <XAxis
-                          dataKey="date"
-                          tick={{ fontSize: 11, fill: "#94a3b8" }}
-                          axisLine={false}
-                          tickLine={false}
-                          interval={chartPeriod === 7 ? 0 : chartPeriod === 30 ? 2 : 2}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 11, fill: "#94a3b8" }}
-                          axisLine={false}
-                          tickLine={false}
-                          tickCount={4}
-                          domain={[0, 120]}
-                        />
-                        <Tooltip content={<CarbsChartTooltip />} />
-                        <ReferenceLine y={60} stroke="#10b981" strokeDasharray="4 3" strokeWidth={1.5}
-                          label={{ value: "Target", position: "right", fontSize: 10, fill: "#10b981" }} />
-                        <Bar
-                          dataKey="carbs"
-                          fill="#10b981"
-                          radius={[4, 4, 0, 0]}
-                          opacity={0.8}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    {carbChartData.length === 0 ? (
+                      <div className="flex items-center justify-center h-[160px] text-slate-400 text-sm text-center px-4">
+                        No meals logged yet.
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={160}>
+                        <BarChart data={carbChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barSize={chartPeriod === 90 ? 10 : chartPeriod === 30 ? 12 : 24}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} interval={chartPeriod === 7 ? 0 : 2} />
+                          <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} tickCount={4} domain={[0, 120]} />
+                          <Tooltip content={<CarbsChartTooltip />} />
+                          <ReferenceLine y={60} stroke="#10b981" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "Target", position: "right", fontSize: 10, fill: "#10b981" }} />
+                          <Bar dataKey="carbs" fill="#10b981" radius={[4, 4, 0, 0]} opacity={0.8} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
                   </div>
                 </div>
               );
@@ -897,12 +835,13 @@ export default function PatientDashboard() {
                 </div>
               ) : (
                 <div className="divide-y divide-blue-50">
-                  {doctorNotes.map(note => {
-                    const priorityCfg = {
+                  {doctorNotes.map((note: { id: number; priority: string; doctor_name?: string; note_text: string; created_at: string }) => {
+                    const priorityMap: Record<string, { bg: string; text: string; dot: string; border: string }> = {
                       routine:  { bg: "bg-blue-50",   text: "text-blue-700",   dot: "bg-blue-500",   border: "border-blue-200"   },
                       urgent:   { bg: "bg-amber-50",  text: "text-amber-700",  dot: "bg-amber-500",  border: "border-amber-200"  },
                       critical: { bg: "bg-red-50",    text: "text-red-700",    dot: "bg-red-500",    border: "border-red-200"    },
-                    }[note.priority];
+                    };
+                    const priorityCfg = priorityMap[note.priority] ?? priorityMap.routine;
                     return (
                       <div key={note.id} className={`px-5 py-4 ${note.priority === "critical" ? "bg-red-50/30" : note.priority === "urgent" ? "bg-amber-50/20" : ""}`}>
                         <div className="flex items-start gap-3">
@@ -911,15 +850,15 @@ export default function PatientDashboard() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                              <span className="text-slate-800 text-xs" style={{ fontWeight: 600 }}>{note.doctorName}</span>
+                              <span className="text-slate-800 text-xs" style={{ fontWeight: 600 }}>{note.doctor_name || "Your Doctor"}</span>
                               <span className={`text-xs px-2 py-0.5 rounded-full capitalize font-semibold ${priorityCfg.bg} ${priorityCfg.text}`}>
                                 {note.priority}
                               </span>
                               <span className="text-slate-400 text-xs flex items-center gap-1">
-                                <Clock className="w-2.5 h-2.5" />{note.date} · {note.time}
+                                <Clock className="w-2.5 h-2.5" />{new Date(note.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
                               </span>
                             </div>
-                            <p className="text-slate-700 text-sm leading-relaxed">{note.text}</p>
+                            <p className="text-slate-700 text-sm leading-relaxed">{note.note_text}</p>
                           </div>
                         </div>
                       </div>

@@ -409,7 +409,11 @@ useEffect(() => {
 
           {/* ── Detail Panel ──────────────────────────────────────────────── */}
           <div className="flex-1 overflow-y-auto px-5 py-6 space-y-5">
-            {loadingProfile || !p ? (
+            {!selectedPatientId ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af' }}>
+                Select a patient to view details
+              </div>
+            ) : loadingProfile || !p ? (
                <div className="flex h-full items-center justify-center">
                  <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
                </div>
@@ -723,7 +727,7 @@ useEffect(() => {
                       };
                       const dt = new Date(log.recorded_at);
                       return (
-                        <div key={log.log_id} className="grid grid-cols-4 items-center px-5 py-3.5 hover:bg-slate-50/60 transition-colors gap-2">
+                        <div key={log.id} className="grid grid-cols-4 items-center px-5 py-3.5 hover:bg-slate-50/60 transition-colors gap-2">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0">
                               <Droplets className="w-3.5 h-3.5 text-blue-500" strokeWidth={1.8} />
@@ -745,8 +749,8 @@ useEffect(() => {
                             </div>
                           </div>
                           <div>
-                            <span className={`text-xs px-2 py-1 rounded-lg capitalize ${ctxColors[log.context_type] || "bg-slate-100 text-slate-600"}`} style={{ fontWeight: 500 }}>
-                              {log.context_type.replace("-", " ")}
+                            <span className={`text-xs px-2 py-1 rounded-lg capitalize ${ctxColors[(log.reading_type || 'random')] || "bg-slate-100 text-slate-600"}`} style={{ fontWeight: 500 }}>
+                              {(log.reading_type || 'random').replace("-", " ")}
                             </span>
                           </div>
                           <p className="text-slate-400 text-xs truncate">{log.notes || <span className="text-slate-200">—</span>}</p>
@@ -764,7 +768,7 @@ useEffect(() => {
                   </div>
                   <div className="divide-y divide-slate-50 max-h-80 overflow-y-auto">
                     {p.meal_logs.map((log: any) => {
-                      const isOver  = log.carbs > 75;
+                      const isOver  = (log.total_carbs_g || 0) > 75;
                       const carbColor = isOver ? "text-amber-700" : "text-emerald-700";
                       const carbBadge = isOver ? "bg-amber-50 text-amber-600 border border-amber-100" : "bg-emerald-50 text-emerald-600 border border-emerald-100";
                       const typeColors: Record<string, string> = {
@@ -773,9 +777,9 @@ useEffect(() => {
                         dinner:    "bg-indigo-50 text-indigo-700",
                         snack:     "bg-pink-50 text-pink-700",
                       };
-                      const dt = new Date(log.recorded_at);
+                      const dt = new Date(log.meal_time);
                       return (
-                        <div key={log.log_id} className="grid grid-cols-4 items-center px-5 py-3.5 hover:bg-slate-50/60 transition-colors gap-2">
+                        <div key={log.id} className="grid grid-cols-4 items-center px-5 py-3.5 hover:bg-slate-50/60 transition-colors gap-2">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 bg-emerald-50 rounded-xl flex items-center justify-center flex-shrink-0">
                               <Utensils className="w-3.5 h-3.5 text-emerald-500" strokeWidth={1.8} />
@@ -788,13 +792,13 @@ useEffect(() => {
                             </div>
                           </div>
                           <div className="col-span-2 pr-2">
-                            <p className="text-slate-800 text-sm truncate" style={{ fontWeight: 500 }}>{log.meal_description}</p>
-                            <span className={`text-xs px-2 py-0.5 rounded-lg mt-0.5 inline-block capitalize ${typeColors[log.meal_type] || "bg-slate-100"}`} style={{ fontWeight: 500 }}>
-                              {log.meal_type}
+                            <p className="text-slate-800 text-sm truncate" style={{ fontWeight: 500 }}>{log.meal_name || "Unknown Meal"}</p>
+                            <span className={`text-xs px-2 py-0.5 rounded-lg mt-0.5 inline-block capitalize bg-slate-100`} style={{ fontWeight: 500 }}>
+                              Meal
                             </span>
                           </div>
                           <div>
-                            <span className={`text-sm ${carbColor}`} style={{ fontWeight: 700 }}>{log.carbs}g</span>
+                            <span className={`text-sm ${carbColor}`} style={{ fontWeight: 700 }}>{log.total_carbs_g ?? 0}g</span>
                             <div className="mt-0.5">
                               <span className={`text-xs px-1.5 py-0.5 rounded-md ${carbBadge}`} style={{ fontWeight: 600 }}>
                                 {isOver ? "Over target" : "On target"}
@@ -834,13 +838,13 @@ useEffect(() => {
                     <p className="text-slate-400 text-xs">
                       {p.meal_logs.length} meals logged · Avg carbs{" "}
                       <span className="text-slate-700 font-semibold">
-                        {p.meal_logs.length > 0 ? Math.round(p.meal_logs.reduce((s: number, l: any) => s + l.carbs, 0) / p.meal_logs.length) : 0}g
+                        {p.meal_logs.length > 0 ? Math.round(p.meal_logs.reduce((s: number, l: any) => s + (l.total_carbs_g || 0), 0) / p.meal_logs.length) : 0}g
                       </span>
                     </p>
                     <p className="text-slate-400 text-xs">
                       Over target:{" "}
                       <span className="text-amber-600 font-semibold">
-                        {p.meal_logs.filter((l: any) => l.carbs > 75).length} / {p.meal_logs.length} meals
+                        {p.meal_logs.filter((l: any) => (l.total_carbs_g || 0) > 75).length} / {p.meal_logs.length} meals
                       </span>
                     </p>
                   </>

@@ -40,13 +40,24 @@ class PatientRegister(BaseModel):
 
 
 class DoctorRegister(BaseModel):
-    """Fields required to register a new doctor account."""
+    """Fields required to register a new doctor account.
+
+    Requires a valid doctor_access_key to prevent unauthorized
+    doctor account creation.
+    """
 
     full_name: str = Field(..., min_length=2, max_length=150)
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=72)
 
     specialization_id: Optional[int] = Field(None, ge=1)
+
+    # Security: only users with a valid access key can register as doctors
+    doctor_access_key: str = Field(
+        ...,
+        min_length=1,
+        description="Secret key required to create a doctor account",
+    )
 
     @field_validator("password")
     @classmethod

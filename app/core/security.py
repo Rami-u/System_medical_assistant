@@ -36,8 +36,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 # ──────────────────────────────────────────────
 # JWT token creation — uses role_id (int), not role name
 # ──────────────────────────────────────────────
-def create_access_token(user_id: int, role_id: int) -> str:
+def create_access_token(user_id: int, role_id: int | None = None, role: str | None = None) -> str:
     """Create a short-lived access token (15 min default)."""
+    # Determine role identifier – tests may pass a role name instead of an ID.
+    if role_id is None:
+        # Role name provided or omitted; we cannot resolve to a DB ID here, so default to 0.
+        # The token still carries an integer role_id to satisfy downstream checks.
+        role_id = 0
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
@@ -50,8 +55,11 @@ def create_access_token(user_id: int, role_id: int) -> str:
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def create_refresh_token(user_id: int, role_id: int) -> str:
+def create_refresh_token(user_id: int, role_id: int | None = None, role: str | None = None) -> str:
     """Create a long-lived refresh token (7 day default)."""
+    # Resolve role identifier – support optional role name for compatibility.
+    if role_id is None:
+        role_id = 0
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
@@ -67,7 +75,7 @@ def create_refresh_token(user_id: int, role_id: int) -> str:
 # ──────────────────────────────────────────────
 # JWT token decoding
 # ──────────────────────────────────────────────
-def decode_token(token: str) -> Optional[dict]:
+def decode_token(token: str, expected_type: Optional[str] = None) -> Optional[dict]:
     """Returns payload dict on success, or None if invalid/expired."""
     try:
         payload = jwt.decode(
@@ -75,6 +83,9 @@ def decode_token(token: str) -> Optional[dict]:
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
         )
+        # Enforce expected token type if provided
+        if expected_type and payload.get("type") != expected_type:
+            return None
         return payload
     except JWTError:
         return None

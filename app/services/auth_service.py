@@ -2,12 +2,14 @@
 AuthService — handles registration, login, token refresh, and profile retrieval.
 
 All database queries use SQLAlchemy 2.0 select() syntax.
+Doctor registration requires a valid DOCTOR_ACCESS_KEY.
 """
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import (
     access_token_expire_seconds,
     create_access_token,
@@ -16,7 +18,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.patient_doctor import Doctor, Patient
+from app.models.patient_doctor import Doctor, Patient, doctor_patient_table
 from app.models.user import Role, User
 from app.models.health_preferences import HealthPreferences
 from app.schemas.auth_schemas import (
@@ -110,12 +112,27 @@ def register_patient(data: PatientRegister, db: Session) -> dict:
             carb_limit_g=60.0
         )
         db.add(prefs)
+        db.flush()
+
+        # ── Auto-assign new patient to ALL doctors currently in the system ──
+        all_doctors = db.execute(select(Doctor)).scalars().all()
+        if all_doctors:
+            for doc in all_doctors:
+                db.execute(
+                    doctor_patient_table.insert().values(
+                        doctor_id=doc.id,
+                        patient_id=profile.id,
+                    )
+                )
 
         db.commit()
         db.refresh(new_user)
         db.refresh(profile)
 
         return {"message": "Patient registration successful", "user": _build_user_response(new_user, profile)}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise e
@@ -127,7 +144,15 @@ def register_patient(data: PatientRegister, db: Session) -> dict:
 def register_doctor(data: DoctorRegister, db: Session) -> dict:
     """
     Creates a new User, links a Doctor Role, and creates Doctor profile.
+    Requires a valid DOCTOR_ACCESS_KEY to prevent unauthorized creation.
     """
+    # ── 0. Verify doctor access key ──────────────────────────────
+    if data.doctor_access_key != settings.DOCTOR_ACCESS_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid doctor access key. Doctor registration requires authorization.",
+        )
+
     stmt = select(User).where(User.email == data.email)
     if db.execute(stmt).scalar_one_or_none():
         raise HTTPException(
@@ -158,12 +183,33 @@ def register_doctor(data: DoctorRegister, db: Session) -> dict:
             specialization_id=data.specialization_id,
         )
         db.add(profile)
-        
+        db.flush()
+
+        # ── Auto-assign ALL existing patients to this new doctor ──
+        all_patients = db.execute(select(Patient)).scalars().all()
+        for patient in all_patients:
+            pair_exists = db.execute(
+                select(doctor_patient_table).where(
+                    doctor_patient_table.c.doctor_id == profile.id,
+                    doctor_patient_table.c.patient_id == patient.id,
+                )
+            ).first()
+            if not pair_exists:
+                db.execute(
+                    doctor_patient_table.insert().values(
+                        doctor_id=profile.id,
+                        patient_id=patient.id,
+                    )
+                )
+
         db.commit()
         db.refresh(new_user)
         db.refresh(profile)
 
         return {"message": "Doctor registration successful", "user": _build_user_response(new_user, profile)}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise e

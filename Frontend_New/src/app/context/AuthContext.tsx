@@ -21,6 +21,7 @@ interface AuthContextType {
     password: string;
     dob: string;
     role: UserRole;
+    doctorAccessKey?: string;
   }) => Promise<{ success: boolean; role?: UserRole; error?: string }>;
   signOut: () => void;
 }
@@ -37,11 +38,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (token) {
         try {
           const userData = await authApi.me();
+          const role = (userData.role as UserRole) || (localStorage.getItem("role") as UserRole) || "patient";
+          localStorage.setItem("role", role);
           setUser({
             id: userData.id,
             name: userData.full_name || userData.email,
             email: userData.email,
-            role: (localStorage.getItem("role") as UserRole) || "patient",
+            role: role,
           });
         } catch (e) {
           localStorage.clear();
@@ -56,18 +59,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await authApi.login({ email, password });
       
-      // Store tokens as requested
+      // Store tokens
       localStorage.setItem("access_token", res.access_token);
       localStorage.setItem("refresh_token", res.refresh_token);
-      localStorage.setItem("role", res.role);
       
-      const userData = await authApi.me();
-      const role = res.role as UserRole;
+      // Role is nested inside res.user, not at top level
+      const role = (res.user?.role as UserRole) || "patient";
+      localStorage.setItem("role", role);
       
       setUser({
-        id: userData.id,
-        name: userData.full_name || userData.email,
-        email: userData.email,
+        id: res.user.id,
+        name: res.user.full_name || res.user.email,
+        email: res.user.email,
         role: role,
       });
       
@@ -83,13 +86,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string;
     dob: string;
     role: UserRole;
+    doctorAccessKey?: string;
   }): Promise<{ success: boolean; role?: UserRole; error?: string }> => {
     try {
       if (data.role === "doctor") {
         await authApi.registerDoctor({ 
           email: data.email, 
           password: data.password, 
-          full_name: data.name 
+          full_name: data.name,
+          doctor_access_key: data.doctorAccessKey || ""
         });
       } else {
         await authApi.registerPatient({ 
@@ -101,7 +106,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return { success: true, role: data.role };
     } catch (e: any) {
-      return { success: false, error: e.response?.data?.detail || "Registration failed" };
+      let errorMsg = "Registration failed. Please try again.";
+      const detail = e.response?.data?.detail;
+      if (typeof detail === "string") {
+        errorMsg = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        // Pydantic validation errors come as array of { msg, loc, type }
+        errorMsg = detail[0].msg || JSON.stringify(detail[0]);
+      } else if (e.response?.data?.message) {
+        errorMsg = e.response.data.message;
+      }
+      return { success: false, error: errorMsg };
     }
   };
 

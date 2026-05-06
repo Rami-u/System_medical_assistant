@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
 import {
   Activity, LayoutDashboard, LogOut, Menu, X,
@@ -158,35 +158,33 @@ export default function DoctorDashboard() {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [selectedAlert, setSelectedAlert] = useState<PatientAlert | null>(null);
 
-  import("react").then(({ useEffect }) => {
-    useEffect(() => {
-      const fetchData = async () => {
-        try {
-          const [dashboardRes, alertsRes] = await Promise.all([
-            doctorApi.getDashboard(),
-            doctorApi.getAlerts()
-          ]);
-          setDashboardData(dashboardRes);
-          const formattedAlerts = alertsRes.map((a: any) => ({
-            id: a.alert_id,
-            patientName: a.patient_name,
-            patientId: a.patient_id,
-            alertType: a.alert_type,
-            severity: a.severity,
-            timestamp: a.created_at,
-            is_read: a.is_read,
-            message: a.message
-          }));
-          setAlerts(formattedAlerts);
-        } catch (err) {
-          console.error("Failed to load dashboard data", err);
-        } finally {
-          setLoading(false);
-        }
-      };
-      fetchData();
-    }, []);
-  });
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [dashboardRes, alertsRes] = await Promise.all([
+          doctorApi.getDashboard(),
+          doctorApi.getAlerts()
+        ]);
+        setDashboardData(dashboardRes);
+        const formattedAlerts = (alertsRes || []).map((a: any) => ({
+          id: a.alert_id,
+          patientName: a.patient_name,
+          patientId: a.patient_id,
+          alertType: a.alert_type,
+          severity: a.severity,
+          timestamp: a.created_at,
+          is_read: a.is_read,
+          message: a.message
+        }));
+        setAlerts(formattedAlerts);
+      } catch (err: any) {
+        console.error("Doctor dashboard error:", err.response?.data || err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const handleSignOut = () => { signOut(); navigate("/"); };
 

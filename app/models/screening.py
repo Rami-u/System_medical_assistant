@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -9,7 +9,7 @@ from .database import Base
 class ScreeningType(Base):
     __tablename__ = "screening_types"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
 
     # relationships
@@ -22,7 +22,7 @@ class ScreeningType(Base):
 class Question(Base):
     __tablename__ = "questions"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     screening_type_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("screening_types.id", ondelete="CASCADE"),
@@ -42,7 +42,7 @@ class Question(Base):
 class Screening(Base):
     __tablename__ = "screenings"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     patient_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("patients.id", ondelete="SET NULL"), nullable=True
     )
@@ -70,7 +70,7 @@ class Screening(Base):
 class ScreeningAnswer(Base):
     __tablename__ = "screening_answers"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     screening_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("screenings.id", ondelete="CASCADE"), nullable=False
     )

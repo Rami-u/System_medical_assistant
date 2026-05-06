@@ -18,6 +18,9 @@ interface DetectedFood {
   carbs: number;
   unit: string;
   confidence: number; // 0-100
+  calories: number;
+  protein: number;
+  fat: number;
 }
 
 interface MealEntry {
@@ -29,6 +32,12 @@ interface MealEntry {
   time: string;
   date: string;
   imageUrl: string;
+}
+
+interface DetectedResult {
+  mealType: MealType;
+  label: string;
+  foods: DetectedFood[];
 }
 
 // ─── Mock AI detection library ────────────────────────────────────────────────
@@ -298,8 +307,9 @@ export default function MealLogsPage() {
   // ── Capture flow state
   const [scanStage,    setScanStage]    = useState<ScanStage>("idle");
   const [previewUrl,   setPreviewUrl]   = useState<string | null>(null);
+  const [imageFile,    setImageFile]    = useState<File | null>(null);
   const [scanStep,     setScanStep]     = useState(0);
-  const [detected,     setDetected]     = useState<typeof MOCK_DETECTIONS[0] | null>(null);
+  const [detected,     setDetected]     = useState<DetectedResult | null>(null);
   const [editedFoods,  setEditedFoods]  = useState<DetectedFood[]>([]);
   const [selectedType, setSelectedType] = useState<MealType>("lunch");
   const [showCamera,   setShowCamera]   = useState(false);
@@ -355,6 +365,7 @@ export default function MealLogsPage() {
     if (!file || !file.type.startsWith("image/")) return;
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
+    setImageFile(file);  // Store file for upload
     setScanStage("preview");
     setScanStep(0);
     setDetected(null);
@@ -378,24 +389,66 @@ export default function MealLogsPage() {
     setShowCamera(false);
   };
 
-  // ─── Run AI scan
+  // ─── Run AI scan — uploads image to backend API
   const handleScan = async () => {
     if (!previewUrl) return;
     setScanStage("scanning");
 
-    // Animate steps
+    // Animate scan steps for UX
     for (let i = 1; i <= SCAN_STEPS.length; i++) {
       await new Promise((r) => setTimeout(r, 480));
       setScanStep(i);
     }
-    await new Promise((r) => setTimeout(r, 300));
 
-    // Pick a random mock detection
-    const result = MOCK_DETECTIONS[Math.floor(Math.random() * MOCK_DETECTIONS.length)];
-    setDetected(result);
-    setEditedFoods(result.foods.map((f) => ({ ...f })));
-    setSelectedType(result.mealType);
-    setScanStage("detected");
+    try {
+      // Build a File to upload. Use stored file if available, else convert data URL.
+      let fileToUpload = imageFile;
+      if (!fileToUpload && previewUrl.startsWith("data:")) {
+        const resp = await fetch(previewUrl);
+        const blob = await resp.blob();
+        fileToUpload = new File([blob], "camera_capture.jpg", { type: "image/jpeg" });
+      }
+      if (!fileToUpload) {
+        // Fallback: fetch from blob URL
+        const resp = await fetch(previewUrl);
+        const blob = await resp.blob();
+        fileToUpload = new File([blob], "meal_photo.jpg", { type: blob.type || "image/jpeg" });
+      }
+
+      console.log("Uploading image to /meal/upload:", fileToUpload.name, fileToUpload.size, "bytes");
+      const apiResult = await mealApi.uploadMeal(fileToUpload);
+      console.log("Upload API response:", JSON.stringify(apiResult, null, 2));
+
+      // Map API response → DetectedFood[] for the UI
+      const items = apiResult.items || apiResult.detected_items || [];
+      const hour = new Date().getHours();
+      const mealType: MealType = hour < 11 ? "breakfast" : hour < 16 ? "lunch" : hour < 21 ? "dinner" : "snack";
+
+      const foods: DetectedFood[] = items.map((item: any) => ({
+        name: item.food_name || "Unknown food",
+        carbs: Math.round(Number(item.carbs_g ?? 0)),
+        unit: item.quantity_desc || item.portion_description || "1 serving",
+        confidence: Math.round(Number(item.confidence_pct ?? item.confidence_score ?? 85)),
+        calories: Math.round(Number(item.calories ?? 0)),
+        protein: Math.round(Number(item.protein_g ?? 0)),
+        fat: Math.round(Number(item.fat_g ?? 0)),
+      }));
+
+      const result = {
+        mealType,
+        label: apiResult.meal_name || "Detected Meal",
+        foods,
+      };
+
+      setDetected(result);
+      setEditedFoods(foods.map((f) => ({ ...f })));
+      setSelectedType(mealType);
+      setScanStage("detected");
+    } catch (err: any) {
+      console.error("Scan failed:", err.response?.status, err.response?.data || err.message);
+      alert(err.response?.data?.detail || "AI analysis failed. Please try again.");
+      setScanStage("preview");
+    }
   };
 
   // ─── Edit detected carbs inline
@@ -414,25 +467,34 @@ export default function MealLogsPage() {
     if (!previewUrl || !detected) return;
     const carbEstimate = editedFoods.reduce((s, f) => s + f.carbs, 0);
     const nowTime = new Date().toTimeString().slice(0, 5);
-    
+
     try {
       const dObj = new Date();
-      const res = await mealApi.addLog({
-        meal_name: detected.label,
-        image_url: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&q=80", // Using placeholder image since we can't upload directly yet
+      const totalCals = editedFoods.reduce((s, f) => s + (f.calories || 0), 0);
+      const payload = {
+        meal_name: detected.label || "Custom Meal",
+        image_url: null,
         total_carbs_g: carbEstimate,
+        total_calories: totalCals || null,
         meal_time: dObj.toISOString(),
         detected_items: editedFoods.map(f => ({
-          food_name: f.name,
-          confidence_pct: f.confidence,
-          quantity_desc: f.unit,
-          carbs_g: f.carbs
+          food_name: f.name || "Unknown Item",
+          confidence_pct: Number(f.confidence) || 85,
+          quantity_desc: f.unit || "1 serving",
+          carbs_g: Number(f.carbs) || 0,
+          calories: Number(f.calories) || 0,
+          protein_g: Number(f.protein) || 0,
+          fat_g: Number(f.fat) || 0
         }))
-      });
+      };
+
+      console.log("Sending confirm payload:", JSON.stringify(payload, null, 2));
+      const res = await mealApi.addLog(payload);
+      console.log("Confirm response:", res);
 
       setMealEntries((prev) => [
         {
-          id: res.id.toString(),
+          id: res.id?.toString() || Date.now().toString(),
           mealType: selectedType,
           label: detected.label,
           foods: editedFoods,
@@ -445,12 +507,20 @@ export default function MealLogsPage() {
       ]);
       // Reset capture flow
       setPreviewUrl(null);
+      setImageFile(null);
       setScanStage("idle");
       setDetected(null);
       setEditedFoods([]);
       setScanStep(0);
-    } catch (err) {
-      alert("Failed to save meal log");
+    } catch (err: any) {
+      console.error("Confirm failed:", err.response?.status, err.response?.data);
+      const detail = err.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('\n')
+          : JSON.stringify(detail) || "Failed to save meal log";
+      alert(msg);
     }
   };
 
@@ -703,6 +773,11 @@ export default function MealLogsPage() {
                                   <span className="text-[10px] bg-emerald-50 text-emerald-600 border border-emerald-100 px-1.5 py-0.5 rounded-full font-medium">{food.confidence}% sure</span>
                                 </div>
                                 <p className="text-slate-400 text-xs">{food.unit}</p>
+                                <p className="text-slate-400 text-[10px] mt-0.5">
+                                  {food.calories > 0 && <>{food.calories} kcal</>}
+                                  {food.protein > 0 && <> · P: {food.protein}g</>}
+                                  {food.fat > 0 && <> · F: {food.fat}g</>}
+                                </p>
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
                                 <div className="flex items-center gap-1">

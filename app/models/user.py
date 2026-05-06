@@ -34,7 +34,7 @@ user_roles_table = Table(
 class Role(Base):
     __tablename__ = "roles"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     role_name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
 
     users: Mapped[list["User"]] = relationship(
@@ -45,7 +45,7 @@ class Role(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(
         String(255), nullable=False, unique=True, index=True
     )
