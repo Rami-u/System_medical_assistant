@@ -32,6 +32,7 @@ class ScreeningResponse(BaseModel):
     screening_type_id: int
     risk_level: str
     risk_score: Optional[float] = None
+    diagnosis: Optional[str] = None
     ai_confidence_pct: Optional[float] = None
     ai_notes: Optional[str] = None
     recommendation: Optional[str] = None
@@ -62,5 +63,6 @@ class ScreeningHistoryItem(BaseModel):
     risk_level: str
     risk_score: float
     risk_label: str
+    diagnosis: str
     recommendation: str
     created_at: datetime

@@ -1,1 +1,0 @@
-# Diacheck test package

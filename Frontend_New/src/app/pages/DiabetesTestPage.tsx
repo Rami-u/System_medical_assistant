@@ -204,7 +204,7 @@ export default function DiabetesTestPage() {
     smokingHistory: "", hba1c: "", bloodGlucose: "",
   });
   const [riskResult, setRiskResult] = useState<{
-    score: number; maxScore: number; riskLevel: string;
+    diagnosis: string; riskLevel: string;
   } | null>(null);
   const [loadingResult, setLoadingResult] = useState(false);
 
@@ -281,17 +281,17 @@ export default function DiabetesTestPage() {
 
         const rawScore = parseFloat(String(res.risk_score ?? 0));
         const score = isNaN(rawScore) ? 0 : Math.round(rawScore);
+        const diagnosis = res.diagnosis || (res.risk_level === "high" ? "Diabetic" : "Not Diabetic");
         const riskLevelCap = (res.risk_level || "low").charAt(0).toUpperCase() + (res.risk_level || "low").slice(1);
 
-        console.log("[Screening] Parsed score:", score, "riskLevel:", riskLevelCap);
+        console.log("[Screening] Parsed diagnosis:", diagnosis, "riskLevel:", riskLevelCap);
 
         setRiskResult({
-          score,
-          maxScore: 100,
+          diagnosis,
           riskLevel: riskLevelCap
         });
 
-        setPageState((res.risk_level === "moderate" || res.risk_level === "high") ? "result-positive" : "result-negative");
+        setPageState(diagnosis === "Diabetic" ? "result-positive" : "result-negative");
       } catch (err: any) {
         console.error("[Screening] Error:", err?.response?.status, err?.response?.data, err);
         const status = err?.response?.status;
@@ -333,7 +333,6 @@ export default function DiabetesTestPage() {
   };
 
   const Icon = step.icon;
-  const riskPercent = riskResult ? Math.round((riskResult.score / riskResult.maxScore) * 100) : 0;
   const progressGradient = activeTest === "advanced" ? advancedProgressGradient : simpleProgressGradient;
   const btnGradient = activeTest === "advanced"
     ? "from-violet-600 to-purple-500 hover:from-violet-500 hover:to-purple-400 shadow-violet-200 hover:shadow-violet-300"
@@ -788,15 +787,15 @@ export default function DiabetesTestPage() {
                 {/* Text */}
                 <div className="text-center mb-6">
                   <h2 className="text-slate-900 mb-2" style={{ fontWeight: 800, fontSize: "1.5rem" }}>
-                    You May Be at Risk
+                    Screening Result
                   </h2>
                   {riskResult && (
-                    <div className="inline-flex items-center gap-2 mb-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${riskResult.riskLevel === "High" ? "bg-red-100 text-red-700"
-                          : riskResult.riskLevel === "Moderate" ? "bg-amber-100 text-amber-700"
-                            : "bg-orange-100 text-orange-700"
-                        }`}>
-                        {riskResult.riskLevel} Risk
+                    <div className="flex flex-col items-center gap-3 mb-4">
+                      <div className="w-20 h-20 bg-red-50 border-2 border-red-200 rounded-full flex items-center justify-center">
+                        <span className="text-red-600 text-2xl" style={{ fontWeight: 800 }}>+</span>
+                      </div>
+                      <span className="px-5 py-2 rounded-full text-sm font-bold bg-red-100 text-red-700">
+                        {riskResult.diagnosis}
                       </span>
                       {activeTest === "advanced" && (
                         <span className="inline-flex items-center gap-1 bg-violet-100 text-violet-700 px-2.5 py-1 rounded-full text-xs font-semibold">
@@ -806,31 +805,24 @@ export default function DiabetesTestPage() {
                       )}
                     </div>
                   )}
-                  <p className="text-amber-600 font-semibold mb-3 text-base">
-                    Elevated diabetes risk indicators detected.
+                  <p className="text-red-600 font-semibold mb-3 text-base">
+                    Diabetes indicators were detected in your screening.
                   </p>
                   <p className="text-slate-500 text-sm leading-relaxed">
-                    Based on your responses, some of your health indicators suggest a potentially elevated
-                    risk of diabetes. Early detection is the first step toward better health —
-                    create a free account to start monitoring and receive personalized guidance.
+                    Based on the ML model's analysis of your health indicators, the result suggests
+                    a positive diabetes screening. This is <strong>not a clinical diagnosis</strong> —
+                    please consult your healthcare provider for proper evaluation and confirmation.
                   </p>
                 </div>
 
-                {/* Risk score bar */}
-                {riskResult && (
-                  <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 mb-5">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-amber-700 text-xs font-semibold uppercase tracking-wide">Risk Score</span>
-                      <span className="text-amber-700 text-sm font-bold">{riskResult.score} / {riskResult.maxScore}</span>
-                    </div>
-                    <div className="h-3 bg-amber-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full transition-all duration-700"
-                        style={{ width: `${riskPercent}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
+                {/* Diagnosis card — replaces old score bar */}
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-5 mb-5 text-center">
+                  <p className="text-red-400 text-xs font-semibold uppercase tracking-wide mb-1">ML Model Result</p>
+                  <p className="text-red-700 text-2xl" style={{ fontWeight: 800 }}>
+                    {riskResult?.diagnosis || "Diabetic"}
+                  </p>
+                  <p className="text-red-400 text-xs mt-1">Binary classification — the model predicts presence or absence of diabetes</p>
+                </div>
 
                 {/* Next steps */}
                 <div className="bg-slate-50 rounded-2xl p-4 mb-6">
@@ -908,9 +900,12 @@ export default function DiabetesTestPage() {
                     Great News! 🎉
                   </h2>
                   {riskResult && (
-                    <div className="inline-flex items-center gap-2 mb-3">
-                      <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
-                        {riskResult.riskLevel} Risk
+                    <div className="flex flex-col items-center gap-3 mb-4">
+                      <div className="w-20 h-20 bg-emerald-50 border-2 border-emerald-200 rounded-full flex items-center justify-center">
+                        <CheckCircle className="w-10 h-10 text-emerald-500" strokeWidth={1.5} />
+                      </div>
+                      <span className="px-5 py-2 rounded-full text-sm font-bold bg-emerald-100 text-emerald-700">
+                        {riskResult.diagnosis}
                       </span>
                       {activeTest === "advanced" && (
                         <span className="inline-flex items-center gap-1 bg-violet-100 text-violet-700 px-2.5 py-1 rounded-full text-xs font-semibold">
@@ -921,30 +916,23 @@ export default function DiabetesTestPage() {
                     </div>
                   )}
                   <p className="text-emerald-600 font-semibold mb-3 text-base">
-                    Your condition looks good — no diabetes risk detected.
+                    No diabetes indicators detected in your screening.
                   </p>
                   <p className="text-slate-500 text-sm leading-relaxed">
-                    Based on your responses, your health indicators currently show a low risk for diabetes.
+                    Based on the ML model's analysis, your health indicators do not suggest diabetes.
                     Keep up the healthy habits! Regular check-ups and an active lifestyle
                     are your best allies for long-term wellness.
                   </p>
                 </div>
 
-                {/* Risk score bar */}
-                {riskResult && (
-                  <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-5">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-emerald-700 text-xs font-semibold uppercase tracking-wide">Risk Score</span>
-                      <span className="text-emerald-700 text-sm font-bold">{riskResult.score} / {riskResult.maxScore}</span>
-                    </div>
-                    <div className="h-3 bg-emerald-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all duration-700"
-                        style={{ width: `${riskPercent}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
+                {/* Diagnosis card — replaces old score bar */}
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 mb-5 text-center">
+                  <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wide mb-1">ML Model Result</p>
+                  <p className="text-emerald-700 text-2xl" style={{ fontWeight: 800 }}>
+                    {riskResult?.diagnosis || "Not Diabetic"}
+                  </p>
+                  <p className="text-emerald-400 text-xs mt-1">Binary classification — the model predicts presence or absence of diabetes</p>
+                </div>
 
                 {/* Tips */}
                 <div className="bg-emerald-50 rounded-2xl p-4 mb-6">

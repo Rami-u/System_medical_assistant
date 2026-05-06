@@ -30,9 +30,9 @@ logger = logging.getLogger(__name__)
 # Recommendations
 # ──────────────────────────────────────────────
 _RECOMMENDATIONS = {
-    "low": "Your risk is low. Maintain your healthy lifestyle.",
+    "low": "Your screening result is negative. No diabetes indicators detected. Maintain your healthy lifestyle.",
     "moderate": "Moderate risk detected. Consider consulting your doctor.",
-    "high": "High risk detected. Please consult your doctor immediately.",
+    "high": "Your screening result is positive. Diabetes indicators detected. Please consult your doctor immediately for a clinical diagnosis.",
 }
 
 
@@ -253,15 +253,20 @@ def predict_and_save_screening(
         features = _extract_advanced_features(data.answers)
     model = AIModelService._advanced_model
 
-    # 2. Predict
+    # 2. Predict — binary classification (0 = Not Diabetic, 1 = Diabetic)
     try:
         logger.info("=== PREDICTION [%s] ===", data.screening_type)
         logger.info("Final feature vector: %s", features)
-        proba = model.predict_proba([features])[0]
-        logger.info("predict_proba output: %s", proba)
+        prediction = int(model.predict([features])[0])
+        logger.info("Model binary prediction: %d", prediction)
         logger.info("Model classes: %s", model.classes_)
-        risk_score = round(float(proba[1]) * 100, 2)
-        logger.info("risk_score=%.2f (proba[1]=%.4f)", risk_score, proba[1])
+
+        # Map binary output to diagnosis
+        is_diabetic = prediction == 1
+        diagnosis = "Diabetic" if is_diabetic else "Not Diabetic"
+        risk_level = "high" if is_diabetic else "low"
+        risk_score = 100.0 if is_diabetic else 0.0
+        logger.info("diagnosis=%s, risk_level=%s", diagnosis, risk_level)
     except Exception as exc:
         logger.error("Model prediction failed: %s", exc)
         raise HTTPException(
@@ -269,7 +274,6 @@ def predict_and_save_screening(
             detail=f"Model prediction error: {exc}",
         )
 
-    risk_level = _classify_risk(risk_score)
     recommendation = _RECOMMENDATIONS[risk_level]
 
     # ── Anonymous caller: return prediction only, no DB write ──
@@ -280,6 +284,7 @@ def predict_and_save_screening(
             screening_type_id=screening_type_id,
             risk_level=risk_level,
             risk_score=risk_score,
+            diagnosis=diagnosis,
             recommendation=recommendation,
             created_at=datetime.now(timezone.utc),
         )
@@ -309,6 +314,7 @@ def predict_and_save_screening(
 
     resp = ScreeningResponse.model_validate(screening)
     resp.risk_score = risk_score
+    resp.diagnosis = diagnosis
     resp.recommendation = recommendation
     return resp
 
@@ -371,13 +377,11 @@ def get_screening_history(user_id: int, db: Session) -> list[ScreeningHistoryIte
         screening = r.Screening
         stype = r.ScreeningType
         
-        # Determine risk label and recommendation
+        # Determine diagnosis from risk_level
         risk_level = screening.risk_level or "low"
-        risk_label = {
-            "low": "Low Risk",
-            "moderate": "Mid Risk",
-            "high": "High Risk"
-        }.get(risk_level.lower(), "Unknown Risk")
+        is_diabetic = risk_level.lower() == "high"
+        diagnosis = "Diabetic" if is_diabetic else "Not Diabetic"
+        risk_label = "Diabetic" if is_diabetic else "Not Diabetic"
         
         history.append(
             ScreeningHistoryItem(
@@ -386,6 +390,7 @@ def get_screening_history(user_id: int, db: Session) -> list[ScreeningHistoryIte
                 risk_level=risk_level,
                 risk_score=float(screening.risk_score or 0.0),
                 risk_label=risk_label,
+                diagnosis=diagnosis,
                 recommendation=_RECOMMENDATIONS.get(risk_level, ""),
                 created_at=screening.created_at,
             )

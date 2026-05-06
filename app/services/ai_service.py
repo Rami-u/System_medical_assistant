@@ -165,15 +165,21 @@ class AIModelService:
         logger.info("Model raw output: %s", output)
 
         # Task 1: Read regression outputs directly — NO softmax, NO argmax
-        calories  = float(output[0][0])
-        carbs_g   = float(output[0][1])
-        fat_g     = float(output[0][2])
-        protein_g = float(output[0][3])
+        calories  = max(0, float(output[0][0]))
+        carbs_g   = max(0, float(output[0][1]))
+        fat_g     = max(0, float(output[0][2]))
+        protein_g = max(0, float(output[0][3]))
+
+        # Estimate total mass from macronutrients + water content
+        # Typical food is ~60-70% water. Macros account for the rest.
+        # mass ≈ (protein + carbs + fat) / 0.35  (macros are ~35% of food weight)
+        macro_sum = protein_g + carbs_g + fat_g
+        mass_g = max(macro_sum, macro_sum / 0.35) if macro_sum > 0 else 0
 
         # Task 4: Log predicted nutrition values
         logger.info(
-            "Predicted: calories=%.1f, carbs=%.1fg, fat=%.1fg, protein=%.1fg",
-            calories, carbs_g, fat_g, protein_g,
+            "Predicted: calories=%.1f, carbs=%.1fg, fat=%.1fg, protein=%.1fg, mass=%.1fg",
+            calories, carbs_g, fat_g, protein_g, mass_g,
         )
 
         # Task 2: Return generic nutrition response (model cannot name food)
@@ -183,6 +189,7 @@ class AIModelService:
             "carbs_g":   round(carbs_g,   1),
             "fat_g":     round(fat_g,     1),
             "protein_g": round(protein_g, 1),
+            "mass_g":    round(mass_g,    1),
         }
 
 

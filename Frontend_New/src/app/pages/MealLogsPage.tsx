@@ -21,6 +21,7 @@ interface DetectedFood {
   calories: number;
   protein: number;
   fat: number;
+  mass: number;
 }
 
 interface MealEntry {
@@ -432,6 +433,7 @@ export default function MealLogsPage() {
         calories: Math.round(Number(item.calories ?? 0)),
         protein: Math.round(Number(item.protein_g ?? 0)),
         fat: Math.round(Number(item.fat_g ?? 0)),
+        mass: Math.round(Number(item.mass_g ?? 0)),
       }));
 
       const result = {
@@ -766,34 +768,56 @@ export default function MealLogsPage() {
                         <div className="space-y-2">
                           <p className="text-xs text-slate-500 font-semibold">Detected Items <span className="text-slate-300 font-normal">(tap carbs to edit)</span></p>
                           {editedFoods.map((food, idx) => (
-                            <div key={idx} className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-0.5">
+                            <div key={idx} className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
+                              {/* Food name + confidence + remove */}
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
                                   <p className="text-slate-800 text-sm" style={{ fontWeight: 600 }}>{food.name}</p>
                                   <span className="text-[10px] bg-emerald-50 text-emerald-600 border border-emerald-100 px-1.5 py-0.5 rounded-full font-medium">{food.confidence}% sure</span>
-                                </div>
-                                <p className="text-slate-400 text-xs">{food.unit}</p>
-                                <p className="text-slate-400 text-[10px] mt-0.5">
-                                  {food.calories > 0 && <>{food.calories} kcal</>}
-                                  {food.protein > 0 && <> · P: {food.protein}g</>}
-                                  {food.fat > 0 && <> · F: {food.fat}g</>}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <div className="flex items-center gap-1">
-                                  <input
-                                    type="number"
-                                    value={food.carbs}
-                                    onChange={(e) => updateCarbs(idx, e.target.value)}
-                                    min={0} max={200}
-                                    className="w-14 px-2 py-1.5 text-center text-sm border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-100"
-                                    style={{ fontWeight: 600 }}
-                                  />
-                                  <span className="text-xs text-slate-400">g</span>
                                 </div>
                                 <button onClick={() => removeFood(idx)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
                                   <X className="w-3.5 h-3.5" />
                                 </button>
+                              </div>
+                              <p className="text-slate-400 text-xs mb-2">{food.unit}</p>
+
+                              {/* Structured nutrition grid */}
+                              <div className="grid grid-cols-5 gap-1.5">
+                                {/* Carbs — editable (affects glucose) */}
+                                <div className="bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 text-center">
+                                  <p className="text-blue-400 text-[9px] font-semibold uppercase tracking-wider">Carbs</p>
+                                  <div className="flex items-center justify-center gap-0.5">
+                                    <input
+                                      type="number"
+                                      value={food.carbs}
+                                      onChange={(e) => updateCarbs(idx, e.target.value)}
+                                      min={0} max={500}
+                                      className="w-10 px-0 py-0 text-center text-sm border-0 bg-transparent text-blue-700 focus:outline-none"
+                                      style={{ fontWeight: 700 }}
+                                    />
+                                    <span className="text-blue-400 text-[10px]">g</span>
+                                  </div>
+                                </div>
+                                {/* Protein */}
+                                <div className="bg-purple-50 border border-purple-100 rounded-lg px-2 py-1.5 text-center">
+                                  <p className="text-purple-400 text-[9px] font-semibold uppercase tracking-wider">Protein</p>
+                                  <p className="text-purple-700 text-sm" style={{ fontWeight: 700 }}>{food.protein}<span className="text-purple-400 text-[10px]">g</span></p>
+                                </div>
+                                {/* Fat */}
+                                <div className="bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5 text-center">
+                                  <p className="text-amber-400 text-[9px] font-semibold uppercase tracking-wider">Fat</p>
+                                  <p className="text-amber-700 text-sm" style={{ fontWeight: 700 }}>{food.fat}<span className="text-amber-400 text-[10px]">g</span></p>
+                                </div>
+                                {/* Mass */}
+                                <div className="bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-center">
+                                  <p className="text-slate-400 text-[9px] font-semibold uppercase tracking-wider">Mass</p>
+                                  <p className="text-slate-700 text-sm" style={{ fontWeight: 700 }}>{food.mass}<span className="text-slate-400 text-[10px]">g</span></p>
+                                </div>
+                                {/* Calories */}
+                                <div className="bg-orange-50 border border-orange-100 rounded-lg px-2 py-1.5 text-center">
+                                  <p className="text-orange-400 text-[9px] font-semibold uppercase tracking-wider">Cal</p>
+                                  <p className="text-orange-700 text-sm" style={{ fontWeight: 700 }}>{food.calories}</p>
+                                </div>
                               </div>
                             </div>
                           ))}

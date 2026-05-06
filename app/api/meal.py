@@ -64,6 +64,7 @@ async def upload_meal_image(file: UploadFile = File(...), current_user: User = D
                         "protein_g": round(cnn_result.get("protein_g", 0), 1),
                         "fat_g": round(cnn_result.get("fat_g", 0), 1),
                         "calories": round(cnn_result.get("calories", 0)),
+                        "mass_g": round(cnn_result.get("mass_g", 0), 1),
                     }
                 ]
             }
