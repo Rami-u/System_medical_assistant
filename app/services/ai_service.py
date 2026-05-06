@@ -31,7 +31,14 @@ logger = logging.getLogger(__name__)
 
 # ── OpenRouter config ─────────────────────────────────────────────────────────
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct:free")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
+# Vision model must support image input — text-only models like gpt-oss-120b CANNOT analyze images
+OPENROUTER_VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL", "google/gemma-4-31b-it:free")
+# Fallback vision models to try when the primary is rate-limited
+VISION_FALLBACK_MODELS = [
+    "google/gemma-4-26b-a4b-it:free",
+    "nvidia/nemotron-nano-12b-v2-vl:free",
+]
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
@@ -49,6 +56,12 @@ class AIModelService:
     _advanced_model = None
     _vision_model = None
 
+    # Normalization stats from training — needed to denormalize model outputs
+    # Order matches model output: [total_calories, total_fat, total_carb, total_protein]
+    _target_names: list[str] = []
+    _target_means: dict[str, float] = {}
+    _target_stds: dict[str, float] = {}
+
     @classmethod
     def load_models(cls) -> None:
         """Load all three pre-trained models from the models/ directory."""
@@ -61,57 +74,79 @@ class AIModelService:
         cls._simple_model = joblib.load("models/simple_model.pkl")
         cls._advanced_model = joblib.load("models/advanced_model.pkl")
 
-        # ── Reconstruct Nutrition5k regression CNN from state_dict ──────────
-        # best_model.pth is a NUTRITION REGRESSOR trained on Nutrition5k.
-        # It predicts 4 continuous values: [calories, carbs_g, fat_g, protein_g]
-        state_dict = torch.load("models/best_model.pth", map_location="cpu")
+        # ── Load Nutrition CNN (MobileNetV2 regression model) ──────────────
+        # nutrition_cnn.pkl contains the full model checkpoint saved via joblib:
+        #   model_state_dict, means, stds, targets, img_size, history, best_val_loss
+        # The model was trained on GPU, so we must patch torch._load_from_bytes
+        # to force map_location='cpu' for the nested pickle deserialization.
+        _original_torch_load = torch.load
 
-        # Log all keys so we can diagnose architecture mismatches
-        logger.info("State dict top-level keys: %s", list(state_dict.keys())[:15])
-
-        # Auto-detect the final linear layer to get num_outputs
-        final_key = None
-        for k in state_dict.keys():
-            if k.endswith(".weight") and "classifier" in k:
-                final_key = k  # keep updating — we want the LAST classifier weight
-
-        if final_key is None:
-            raise RuntimeError(
-                f"Cannot find classifier weight in state_dict. "
-                f"All keys: {list(state_dict.keys())}"
+        def _cpu_load_from_bytes(b):
+            return _original_torch_load(
+                io.BytesIO(b), map_location="cpu", weights_only=False
             )
 
-        num_outputs = state_dict[final_key].shape[0]
-        logger.info(
-            "Detected num_outputs=%d from key '%s' (expected 4 for Nutrition5k)",
-            num_outputs, final_key,
-        )
+        # Temporarily patch so joblib can deserialize CUDA tensors on CPU
+        _orig_storage_loader = torch.storage._load_from_bytes
+        torch.storage._load_from_bytes = _cpu_load_from_bytes
+        try:
+            checkpoint = joblib.load("models/nutrition_cnn.pkl")
+        finally:
+            torch.storage._load_from_bytes = _orig_storage_loader
 
-        # Build EfficientNet-B3 with regression head (same architecture as training)
-        backbone = tv_models.efficientnet_b3(weights=None)
+        logger.info("Checkpoint keys: %s", list(checkpoint.keys()))
+
+        # Store normalization statistics for denormalizing predictions
+        cls._target_names = checkpoint["targets"]   # ['total_calories', 'total_fat', 'total_carb', 'total_protein']
+        cls._target_means = checkpoint["means"]
+        cls._target_stds  = checkpoint["stds"]
+        img_size = checkpoint.get("img_size", 224)
+        logger.info("Target names: %s", cls._target_names)
+        logger.info("Target means: %s", cls._target_means)
+        logger.info("Target stds:  %s", cls._target_stds)
+        logger.info("Image size:   %d", img_size)
+        logger.info("Best val loss: %.4f", checkpoint.get("best_val_loss", -1))
+
+        state_dict = checkpoint["model_state_dict"]
+
+        # ── Reconstruct MobileNetV2 + custom regression head ───────────────
+        # Architecture must EXACTLY match model.py NutritionCNN class:
+        #   backbone = MobileNetV2  (features.0 – features.18, last conv→1280)
+        #   classifier = Sequential(
+        #     [0] Dropout(0.4),
+        #     [1] Linear(1280, 512),  [2] ReLU(inplace),
+        #     [3] BatchNorm1d(512),   [4] Dropout(0.3),
+        #     [5] Linear(512, 256),   [6] ReLU(inplace),
+        #     [7] BatchNorm1d(256),   [8] Dropout(0.2),
+        #     [9] Linear(256, 128),  [10] ReLU(inplace),
+        #    [11] Linear(128, 4)     ← 4 regression outputs
+        #   )
+        num_outputs = len(cls._target_names)  # 4
+
+        backbone = tv_models.mobilenet_v2(weights=None)
         backbone.classifier = nn.Sequential(
-            nn.Dropout(p=0.3),
-            nn.Linear(1536, 512),
-            nn.ReLU(),
-            nn.BatchNorm1d(512),
-            nn.Dropout(p=0.3),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.BatchNorm1d(256),
-            nn.Dropout(p=0.3),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Linear(128, num_outputs),  # 4 regression outputs
+            nn.Dropout(p=0.4),                # [0]
+            nn.Linear(1280, 512),             # [1]
+            nn.ReLU(inplace=True),            # [2]
+            nn.BatchNorm1d(512),              # [3]
+            nn.Dropout(p=0.3),                # [4]
+            nn.Linear(512, 256),              # [5]
+            nn.ReLU(inplace=True),            # [6]
+            nn.BatchNorm1d(256),              # [7]
+            nn.Dropout(p=0.2),                # [8]
+            nn.Linear(256, 128),              # [9]
+            nn.ReLU(inplace=True),            # [10]
+            nn.Linear(128, num_outputs),      # [11] — 4 regression outputs
         )
 
-        # Strip "backbone." prefix if the state_dict was saved with a wrapper
+        # Strip "backbone." prefix — the state dict was saved with a wrapper
         cleaned = {k.replace("backbone.", "", 1): v for k, v in state_dict.items()}
         backbone.load_state_dict(cleaned, strict=True)
         backbone.eval()
 
         cls._vision_model = backbone
         logger.info(
-            "Vision model loaded as NUTRITION REGRESSOR with %d outputs.",
+            "✓ Vision model loaded: MobileNetV2 nutrition regressor with %d outputs.",
             num_outputs,
         )
 
@@ -124,14 +159,18 @@ class AIModelService:
         """Check only if screening models are loaded — does NOT require vision model."""
         return cls._advanced_model is not None
 
-    # ── Vision: Nutrition5k regression CNN ──────────────────────────────────
+    # ── Vision: MobileNetV2 Nutrition Regression CNN ───────────────────────
     @classmethod
     def run_vision_model(cls, image_bytes: bytes) -> dict | None:
         """
-        Run the Nutrition5k regression CNN on raw image bytes.
+        Run the MobileNetV2 nutrition regression CNN on raw image bytes.
 
         The model is a NUTRITION REGRESSOR — it does NOT classify food names.
-        Model output shape: [1, 4] → [calories, carbs_g, fat_g, protein_g]
+        Model output shape: [1, 4] → normalized Z-scores for
+            [total_calories, total_fat, total_carb, total_protein]
+
+        Outputs are **denormalized** using the training-set means/stds
+        that were stored in the checkpoint.
 
         Returns a nutrition dict, or None on unexpected error.
         """
@@ -139,7 +178,7 @@ class AIModelService:
         from PIL import Image
         from torchvision import transforms
 
-        # Task 3: Standard ImageNet preprocessing (matches Nutrition5k training)
+        # Standard ImageNet preprocessing (matches training pipeline)
         preprocess = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
@@ -149,26 +188,31 @@ class AIModelService:
             ),
         ])
 
-        # Task 3: Convert to RGB before transform
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         tensor = preprocess(image).unsqueeze(0)  # shape: (1, 3, 224, 224)
 
-        # Task 4: Log input details
         logger.info("Input image size: %s", image.size)
         logger.info("Tensor shape: %s", tensor.shape)
 
         with torch.no_grad():
             output = cls._vision_model(tensor)  # shape: [1, 4]
 
-        # Task 1 + 4: Log raw model output
-        logger.info("Model output shape: %s", output.shape)
-        logger.info("Model raw output: %s", output)
+        logger.info("Model raw output (Z-scores): %s", output)
 
-        # Task 1: Read regression outputs directly — NO softmax, NO argmax
-        calories  = max(0, float(output[0][0]))
-        carbs_g   = max(0, float(output[0][1]))
-        fat_g     = max(0, float(output[0][2]))
-        protein_g = max(0, float(output[0][3]))
+        # ── Denormalize: prediction = z_score * std + mean ─────────────────
+        # Output order matches cls._target_names:
+        #   [total_calories, total_fat, total_carb, total_protein]
+        results = {}
+        for i, name in enumerate(cls._target_names):
+            z = float(output[0][i])
+            # Match original inference.py: label_norm * (std + 1e-8) + mean
+            val = z * (cls._target_stds[name] + 1e-8) + cls._target_means[name]
+            results[name] = max(0, val)  # Clamp negatives to zero
+
+        calories  = results.get("total_calories", 0)
+        fat_g     = results.get("total_fat", 0)
+        carbs_g   = results.get("total_carb", 0)
+        protein_g = results.get("total_protein", 0)
 
         # Estimate total mass from macronutrients + water content
         # Typical food is ~60-70% water. Macros account for the rest.
@@ -176,13 +220,11 @@ class AIModelService:
         macro_sum = protein_g + carbs_g + fat_g
         mass_g = max(macro_sum, macro_sum / 0.35) if macro_sum > 0 else 0
 
-        # Task 4: Log predicted nutrition values
         logger.info(
-            "Predicted: calories=%.1f, carbs=%.1fg, fat=%.1fg, protein=%.1fg, mass=%.1fg",
+            "Predicted (denormalized): calories=%.1f, carbs=%.1fg, fat=%.1fg, protein=%.1fg, mass=%.1fg",
             calories, carbs_g, fat_g, protein_g, mass_g,
         )
 
-        # Task 2: Return generic nutrition response (model cannot name food)
         return {
             "meal_name": "Detected Meal",
             "calories":  round(calories,  1),
@@ -295,8 +337,14 @@ def _build_patient_context(patient_id: int, db: Session) -> str:
 # OpenRouter API call
 # ──────────────────────────────────────────────
 
-def _call_openrouter(messages: list[dict], max_tokens: int = 1024) -> str:
-    """Call OpenRouter API with the given messages. Returns the AI text."""
+def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | None = None) -> str:
+    """Call OpenRouter API with retry on rate-limit (429).
+
+    Args:
+        model: Override the default model. Use OPENROUTER_VISION_MODEL for image tasks.
+    """
+    import time as _time
+
     if not OPENROUTER_API_KEY:
         logger.warning("OPENROUTER_API_KEY is not set — returning fallback.")
         return (
@@ -304,6 +352,7 @@ def _call_openrouter(messages: list[dict], max_tokens: int = 1024) -> str:
             "Please set the OPENROUTER_API_KEY in your .env file to enable AI responses."
         )
 
+    use_model = model or OPENROUTER_MODEL
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -311,30 +360,44 @@ def _call_openrouter(messages: list[dict], max_tokens: int = 1024) -> str:
         "X-Title": "DiaCheck Medical Assistant",
     }
     payload = {
-        "model": OPENROUTER_MODEL,
+        "model": use_model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": 0.7,
     }
 
-    try:
-        resp = http_requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
-    except http_requests.exceptions.HTTPError as e:
-        logger.error("OpenRouter HTTP error %s: %s", e.response.status_code, e.response.text[:500])
-        if e.response.status_code == 429:
-            return "I'm currently experiencing high demand. Please try again in a moment."
-        return f"AI service error (HTTP {e.response.status_code}). Please try again shortly."
-    except Exception as exc:
-        logger.error("OpenRouter call failed: %s", exc)
-        return (
-            "Thank you for your message. I'm your Diacheck AI assistant. "
-            "I'm currently unable to process your request due to a temporary "
-            "service issue. Please try again shortly or consult your doctor "
-            "for immediate medical advice."
-        )
+    # Retry up to 3 times with exponential backoff on 429 rate-limit
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            logger.info("Calling OpenRouter model=%s (attempt %d/%d)", use_model, attempt + 1, max_retries)
+            resp = http_requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"].get("content")
+            if content:
+                return content.strip()
+            # Some models return None content with reasoning — skip
+            logger.warning("Model %s returned empty content, attempt %d", use_model, attempt + 1)
+            return "AI returned an empty response. Please try again."
+        except http_requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code
+            logger.error("OpenRouter HTTP error %s: %s", status_code, e.response.text[:300])
+            if status_code == 429:
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                logger.info("Rate limited. Waiting %ds before retry...", wait)
+                _time.sleep(wait)
+                continue  # retry
+            return f"AI service error (HTTP {status_code}). Please try again shortly."
+        except Exception as exc:
+            logger.error("OpenRouter call failed: %s", exc)
+            return (
+                "I'm currently unable to process your request due to a temporary "
+                "service issue. Please try again shortly."
+            )
+
+    # All retries exhausted
+    return "AI service is temporarily busy. Please wait a moment and try again."
 
 
 def _generate_ai_response(user_message: str, patient_context: str = "") -> str:
@@ -442,31 +505,90 @@ def get_conversation_detail(conversation_id: int, user_id: int, db: Session) -> 
 
 def analyze_meal_image(image_bytes: bytes, mime_type: str) -> dict:
     """
-    Use OpenRouter vision model to detect food items in an image.
-    Falls back to the local CNN nutrition model if OpenRouter is not available.
-    Returns {meal_name, items: [{food_name, quantity_desc, confidence_pct, carbs_g, ...}]}
+    Hybrid meal analysis: CNN primary + Vision API enrichment.
+
+    1. CNN (PRIMARY): Fast, offline nutrition estimation — always runs first.
+       Returns total calories, fat, carbs, protein for the whole plate.
+    2. Vision API (ENRICHMENT): Identifies individual food items with names.
+       If API is available, it enriches the CNN totals with item-by-item detail.
+       If API fails (rate-limited, offline), CNN results are still returned.
+
+    Returns {meal_name, items: [{food_name, carbs_g, calories, protein_g, fat_g, ...}]}
     """
     import base64
 
-    if not OPENROUTER_API_KEY:
-        # Fallback to local CNN model
-        result = AIModelService.run_vision_model(image_bytes)
-        if result:
-            return {
-                "meal_name": result["meal_name"],
-                "items": [{
-                    "food_name": "Detected Meal",
-                    "quantity_desc": "1 serving",
-                    "confidence_pct": 75.0,
-                    "carbs_g": result["carbs_g"],
-                    "calories": result["calories"],
-                    "protein_g": result["protein_g"],
-                    "fat_g": result["fat_g"],
-                }]
-            }
-        raise HTTPException(status_code=500, detail="Vision model failed")
+    # ── Step 1: CNN Primary — always runs ──────────────────────────────────
+    cnn_result = None
+    try:
+        cnn_result = AIModelService.run_vision_model(image_bytes)
+        if cnn_result:
+            logger.info(
+                "CNN prediction: cal=%.1f, carbs=%.1fg, fat=%.1fg, prot=%.1fg",
+                cnn_result.get("calories", 0), cnn_result.get("carbs_g", 0),
+                cnn_result.get("fat_g", 0), cnn_result.get("protein_g", 0),
+            )
+    except Exception as e:
+        logger.warning("CNN model failed: %s — falling back to API only", e)
 
-    # Encode image to base64 for OpenRouter vision models
+    # ── Step 2: Vision API Enrichment — try to get food item names ─────────
+    api_result = None
+    if OPENROUTER_API_KEY:
+        try:
+            api_result = _call_vision_api(image_bytes, mime_type)
+            if api_result:
+                logger.info(
+                    "API identified %d items for '%s'",
+                    len(api_result.get("items", [])), api_result.get("meal_name", "?"),
+                )
+        except Exception as e:
+            logger.warning("Vision API failed: %s — using CNN results only", e)
+
+    # ── Step 3: Merge results ──────────────────────────────────────────────
+    if api_result and api_result.get("items"):
+        # API returned item-level detail — use it (it includes names + nutrition)
+        # Override API totals with CNN nutrition if CNN is available (more accurate)
+        if cnn_result:
+            api_result["cnn_totals"] = {
+                "calories": cnn_result.get("calories", 0),
+                "carbs_g": cnn_result.get("carbs_g", 0),
+                "fat_g": cnn_result.get("fat_g", 0),
+                "protein_g": cnn_result.get("protein_g", 0),
+                "mass_g": cnn_result.get("mass_g", 0),
+            }
+        return api_result
+
+    if cnn_result:
+        # API unavailable — return CNN results as a single item
+        logger.info("Using CNN-only results (API unavailable)")
+        return {
+            "meal_name": cnn_result.get("meal_name", "Detected Meal"),
+            "items": [
+                {
+                    "food_name": "Detected Meal (CNN estimate)",
+                    "quantity_desc": f"~{cnn_result.get('mass_g', 0):.0f}g",
+                    "confidence_pct": 80.0,
+                    "carbs_g": cnn_result.get("carbs_g", 0),
+                    "calories": cnn_result.get("calories", 0),
+                    "protein_g": cnn_result.get("protein_g", 0),
+                    "fat_g": cnn_result.get("fat_g", 0),
+                }
+            ],
+        }
+
+    # Both failed
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Unable to analyze meal image. Please try again.",
+    )
+
+
+def _call_vision_api(image_bytes: bytes, mime_type: str) -> dict | None:
+    """
+    Call OpenRouter Vision API to identify individual food items.
+    Returns parsed JSON dict or None on failure.
+    """
+    import base64
+
     b64_img = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{mime_type};base64,{b64_img}"
 
@@ -502,38 +624,30 @@ def analyze_meal_image(image_bytes: bytes, mime_type: str) -> dict:
         }
     ]
 
-    try:
-        text = _call_openrouter(messages, max_tokens=1500)
-        logger.info("OpenRouter meal analysis raw: %s", text[:500])
+    # Try the primary vision model, then fallbacks on failure
+    models_to_try = [OPENROUTER_VISION_MODEL] + VISION_FALLBACK_MODELS
 
-        # Strip markdown fences
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        text = text.strip()
+    for vision_model in models_to_try:
+        text = _call_openrouter(messages, max_tokens=1500, model=vision_model)
+        logger.info("Vision model (%s) raw response: %s", vision_model, text[:300])
 
-        result = json.loads(text)
-        logger.info("Parsed meal result: %s", result)
-        return result
-    except json.JSONDecodeError as e:
-        logger.error("Meal JSON parse error: %s — raw: %s", e, text[:500])
-        # Fallback to local CNN
-        cnn_result = AIModelService.run_vision_model(image_bytes)
-        if cnn_result:
-            return {
-                "meal_name": cnn_result["meal_name"],
-                "items": [{
-                    "food_name": "Detected Meal",
-                    "quantity_desc": "1 serving",
-                    "confidence_pct": 70.0,
-                    "carbs_g": cnn_result["carbs_g"],
-                    "calories": cnn_result["calories"],
-                    "protein_g": cnn_result["protein_g"],
-                    "fat_g": cnn_result["fat_g"],
-                }]
-            }
-        raise HTTPException(status_code=500, detail="AI returned invalid JSON format")
+        # Strip markdown fences if present
+        cleaned = text
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("```")[1]
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+
+        try:
+            result = json.loads(cleaned)
+            logger.info("Parsed meal result from %s: %s", vision_model, result)
+            return result
+        except json.JSONDecodeError as e:
+            logger.warning("Model %s returned non-JSON — trying next...", vision_model)
+            continue
+
+    return None  # All models failed
 
 
 def predict_screening_risk(answers_text: str) -> dict:

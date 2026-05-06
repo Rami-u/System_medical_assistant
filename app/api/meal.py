@@ -10,7 +10,7 @@ from app.models.database import get_db
 from app.models.user import User
 from app.schemas.meal_schemas import MealLogCreate, MealLogResponse
 from app.services.meal_service import create_meal_log, get_meal_log_by_id, get_meal_logs
-from app.services.ai_service import analyze_meal_image, AIModelService
+from app.services.ai_service import analyze_meal_image
 
 logger = logging.getLogger(__name__)
 
@@ -24,56 +24,22 @@ async def upload_meal_image(file: UploadFile = File(...), current_user: User = D
 
     image_bytes = await file.read()
 
-    # ── 1. Try Gemini Vision FIRST for detailed food itemization ──────────
-    # Gemini can identify individual foods (chicken, potatoes, peas)
-    # while the CNN regressor can only estimate total nutrition for the whole plate.
-    try:
-        result = analyze_meal_image(image_bytes, file.content_type)
-        logger.info("Gemini returned %d items for meal '%s'",
-                     len(result.get("items", [])), result.get("meal_name", "?"))
-        return result
-    except HTTPException as exc:
-        logger.warning("Gemini Vision failed (status=%s): %s", exc.status_code, exc.detail)
-        # Fall through to CNN fallback
-    except Exception as exc:
-        logger.warning("Gemini Vision unexpected error: %s", exc)
-        # Fall through to CNN fallback
+    # Hybrid analysis: CNN (primary, fast, offline) + Vision API (enrichment, food names)
+    result = analyze_meal_image(image_bytes, file.content_type)
 
-    # ── 2. Fallback: local Nutrition5k CNN regression model ──────────────
-    # This model can only estimate total nutrition, not identify individual foods.
-    if AIModelService.models_ready():
-        try:
-            cnn_result = AIModelService.run_vision_model(image_bytes)
-        except Exception as exc:
-            logger.warning("Vision model inference failed: %s", exc)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Both AI services failed. Vision model error: {exc}",
-            )
+    items = result.get("items", [])
+    meal_name = result.get("meal_name", "Unknown")
+    cnn_totals = result.get("cnn_totals")
 
-        if cnn_result is not None:
-            logger.info("CNN fallback result: %s", cnn_result)
-            return {
-                "meal_name": "Detected Meal",
-                "items": [
-                    {
-                        "food_name": "Detected Food (AI Estimated)",
-                        "quantity_desc": "1 serving",
-                        "confidence_pct": 80.0,
-                        "carbs_g": round(cnn_result.get("carbs_g", 0), 1),
-                        "protein_g": round(cnn_result.get("protein_g", 0), 1),
-                        "fat_g": round(cnn_result.get("fat_g", 0), 1),
-                        "calories": round(cnn_result.get("calories", 0)),
-                        "mass_g": round(cnn_result.get("mass_g", 0), 1),
-                    }
-                ]
-            }
+    if cnn_totals:
+        logger.info(
+            "Hybrid analysis: API identified %d items for '%s', CNN totals: cal=%.0f, carbs=%.1fg",
+            len(items), meal_name, cnn_totals.get("calories", 0), cnn_totals.get("carbs_g", 0),
+        )
+    else:
+        logger.info("Analysis returned %d items for meal '%s'", len(items), meal_name)
 
-    # ── 3. Both services unavailable ─────────────────────────────────────
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="No AI service available to analyze the image.",
-    )
+    return result
 
 
 @router.post("/confirm", response_model=MealLogResponse, status_code=201, summary="Confirm and save a meal log with detected items")
