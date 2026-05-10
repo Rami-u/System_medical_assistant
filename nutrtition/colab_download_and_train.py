@@ -1,24 +1,3 @@
-"""
-Download Nutrition5k dataset + Train CNN — ALL ON GOOGLE COLAB
-==============================================================
-You DON'T need to download 180GB. This script only downloads:
-  - Overhead images (~2-3 GB, only the images you need)
-  - Metadata CSV (~1 MB)
-  - Train/test split files (~100 KB)
-
-HOW TO USE:
-1. Open Google Colab: https://colab.research.google.com
-2. Select GPU runtime: Runtime > Change runtime type > T4 GPU
-3. Upload ONLY this single file to Colab
-4. Run in a cell:
-       !python colab_download_and_train.py --epochs 60 --batch-size 32 --use-amp
-5. Download the resulting nutrition_cnn.pkl
-6. Place it in System_medical_assistant/models/nutrition_cnn.pkl
-
-Total download: ~2-3 GB (NOT 180GB — we skip all videos)
-Total time: ~30-60 minutes on T4 GPU
-"""
-
 import os
 import subprocess
 import sys

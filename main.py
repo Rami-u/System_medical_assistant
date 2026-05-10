@@ -1,10 +1,5 @@
-"""
-Diacheck — FastAPI application entry point.
-
-Registers all routers and creates SQLite tables on startup via lifespan.
-"""
-
 import logging
+
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone

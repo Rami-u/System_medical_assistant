@@ -50,10 +50,6 @@ htmlcov/
 # ── ML Model Weights (large binary files) ────────────────
 # These must be downloaded separately or trained locally.
 # See nutrtition/README.md for training instructions.
-models/*.pth
-models/*.pkl
-models/*.h5
-models/*.onnx
 
 # ── Nutrition Training Data (5+ GB) ─────────────────────
 # Images downloaded from Nutrition5k dataset
