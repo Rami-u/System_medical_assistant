@@ -1,11 +1,17 @@
 import logging
+import os
 
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.models.database import Base, engine
 
@@ -28,6 +34,7 @@ from app.api.ai_chat import router as ai_chat_router
 from app.api.screening import router as screening_router
 from app.api.doctor import router as doctor_router
 from app.api.settings import router as settings_router
+from app.api.retinopathy import router as retinopathy_router
 
 logger = logging.getLogger(__name__)
 
@@ -391,8 +398,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.warning("Failed to load ML models — Gemini fallback will be used: %s", exc)
 
+    # Load Diabetic Retinopathy model (EfficientNet-B4)
+    try:
+        from ml.retinopathy.dr_inference import DRInferenceService
+        DRInferenceService.load()
+        logger.info("✓ DR retinopathy model loaded successfully.")
+    except Exception as exc:
+        logger.warning("Failed to load DR model — retinopathy endpoint will be unavailable: %s", exc)
+
     yield
 
+
+# Rate limiter (slowapi)
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="Diacheck API",
@@ -403,9 +421,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS — read allowed origins from env, default to localhost dev servers
+_cors_origins_raw = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -422,6 +447,7 @@ app.include_router(ai_chat_router)
 app.include_router(screening_router)
 app.include_router(doctor_router)
 app.include_router(settings_router)
+app.include_router(retinopathy_router)
 
 
 @app.get("/", tags=["Health"])

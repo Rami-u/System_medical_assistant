@@ -1,7 +1,9 @@
 """Auth router — thin controller delegating to AuthService."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.dependencies import get_current_user
 from app.models.database import get_db
@@ -16,6 +18,7 @@ from app.services.auth_service import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/register/patient", response_model=RegisterResponse, status_code=201, summary="Register a new patient account")
@@ -29,7 +32,8 @@ def register_doctor_endpoint(data: DoctorRegister, db: Session = Depends(get_db)
 
 
 @router.post("/login", response_model=TokenResponse, summary="Login and receive JWT tokens")
-def login(data: UserLogin, db: Session = Depends(get_db)) -> TokenResponse:
+@limiter.limit("5/minute")
+def login(request: Request, data: UserLogin, db: Session = Depends(get_db)) -> TokenResponse:
     return login_user(data, db)
 
 

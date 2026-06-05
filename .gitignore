@@ -1,89 +1,40 @@
-# ═══════════════════════════════════════════════════════════
-# Smart Medical System — .gitignore
-# ═══════════════════════════════════════════════════════════
-
-# ── Python ────────────────────────────────────────────────
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg-info/
-*.egg
-dist/
-build/
-.eggs/
-
-# ── Virtual Environments ─────────────────────────────────
-venv/
-.venv/
-env/
-ENV/
+# Environments
 gpu_env/
-nutrtition/gpu_env/
+.venv/
+venv/
 
-# ── Environment / Secrets ────────────────────────────────
-.env
-.envrc
-
-# ── IDE / Editor ─────────────────────────────────────────
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# ── Testing / Coverage ──────────────────────────────────
+# Cache
+__pycache__/
+*.pyc
+*.pyo
 .pytest_cache/
-htmlcov/
-.coverage
-.coverage.*
-*.cover
-.tox/
-.nox/
 
-# ── Database Files ───────────────────────────────────────
-*.db
+# Database
 *.db-shm
 *.db-wal
-*.sqlite3
 
-# ── ML Model Weights (large binary files) ────────────────
-# These must be downloaded separately or trained locally.
-# See nutrtition/README.md for training instructions.
+# Secrets
+.env
 
-# ── Nutrition Training Data (5+ GB) ─────────────────────
-# Images downloaded from Nutrition5k dataset
-nutrtition/images/
-nutrtition/gpu_env/
-nutrtition/__pycache__/
+# ML Models (large binary files)
+ml/nutrition/nutrition_cnn.pkl
+ml/retinopathy/best_dr_model.pth
 
-# Training artifacts / checkpoints
-nutrtition/*.pth
-nutrtition/*.pkl
-nutrtition/*.csv
-nutrtition/*.ipynb
+# OS
+.DS_Store
+Thumbs.db
 
-# ── Notebooks (contain large outputs) ────────────────────
-*.ipynb
-!nutrtition/Nutrition5k_CNN_Training.ipynb
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# ── AI/ML Artifacts & Datasets ───────────────────────────
-Ai/artifacts/
-Ai/processed/
-Ai/SampleModel/
-Ai/*.pkl
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
 
-# ── Node.js / Frontend ──────────────────────────────────
-node_modules/
-Frontend_New/node_modules/
-
-# ── Miscellaneous ────────────────────────────────────────
+# Misc
+Aiiiii
 *.log
-*.pid
-*.rdb
-*.aof
-tempCodeRunnerFile.py
-som3aa.csv
-.ruff_cache/
-.mypy_cache/
-.dmypy.json

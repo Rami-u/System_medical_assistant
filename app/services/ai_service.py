@@ -71,8 +71,8 @@ class AIModelService:
         from torchvision import models as tv_models
 
         logger.info("Loading pre-trained models …")
-        cls._simple_model = joblib.load("models/simple_model.pkl")
-        cls._advanced_model = joblib.load("models/advanced_model.pkl")
+        cls._simple_model   = joblib.load("ml/screening/simple_model.pkl")
+        cls._advanced_model = joblib.load("ml/screening/advanced_model.pkl")
 
         # ── Load Nutrition CNN (MobileNetV2 regression model) ──────────────
         # nutrition_cnn.pkl contains the full model checkpoint saved via joblib:
@@ -90,7 +90,7 @@ class AIModelService:
         _orig_storage_loader = torch.storage._load_from_bytes
         torch.storage._load_from_bytes = _cpu_load_from_bytes
         try:
-            checkpoint = joblib.load("models/nutrition_cnn.pkl")
+            checkpoint = joblib.load("ml/nutrition/nutrition_cnn.pkl")
         finally:
             torch.storage._load_from_bytes = _orig_storage_loader
 
@@ -337,11 +337,12 @@ def _build_patient_context(patient_id: int, db: Session) -> str:
 # OpenRouter API call
 # ──────────────────────────────────────────────
 
-def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | None = None) -> str:
+def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | None = None, timeout: int = 60) -> str:
     """Call OpenRouter API with retry on rate-limit (429).
 
     Args:
         model: Override the default model. Use OPENROUTER_VISION_MODEL for image tasks.
+        timeout: HTTP request timeout in seconds (3 for vision, 60 for chat).
     """
     import time as _time
 
@@ -370,8 +371,8 @@ def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | 
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            logger.info("Calling OpenRouter model=%s (attempt %d/%d)", use_model, attempt + 1, max_retries)
-            resp = http_requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+            logger.info("Calling OpenRouter model=%s (attempt %d/%d, timeout=%ds)", use_model, attempt + 1, max_retries, timeout)
+            resp = http_requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=timeout)
             resp.raise_for_status()
             data = resp.json()
             content = data["choices"][0]["message"].get("content")
@@ -384,11 +385,14 @@ def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | 
             status_code = e.response.status_code
             logger.error("OpenRouter HTTP error %s: %s", status_code, e.response.text[:300])
             if status_code == 429:
-                wait = 2 ** attempt  # 1s, 2s, 4s
-                logger.info("Rate limited. Waiting %ds before retry...", wait)
+                wait = 0.5 * (2 ** attempt)  # 0.5s, 1s, 2s
+                logger.info("Rate limited. Waiting %.1fs before retry...", wait)
                 _time.sleep(wait)
                 continue  # retry
             return f"AI service error (HTTP {status_code}). Please try again shortly."
+        except http_requests.exceptions.Timeout:
+            logger.warning("OpenRouter request timed out after %ds (attempt %d)", timeout, attempt + 1)
+            continue
         except Exception as exc:
             logger.error("OpenRouter call failed: %s", exc)
             return (
@@ -398,6 +402,7 @@ def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | 
 
     # All retries exhausted
     return "AI service is temporarily busy. Please wait a moment and try again."
+
 
 
 def _generate_ai_response(user_message: str, patient_context: str = "") -> str:
@@ -628,7 +633,7 @@ def _call_vision_api(image_bytes: bytes, mime_type: str) -> dict | None:
     models_to_try = [OPENROUTER_VISION_MODEL] + VISION_FALLBACK_MODELS
 
     for vision_model in models_to_try:
-        text = _call_openrouter(messages, max_tokens=1500, model=vision_model)
+        text = _call_openrouter(messages, max_tokens=1500, model=vision_model, timeout=3)
         logger.info("Vision model (%s) raw response: %s", vision_model, text[:300])
 
         # Strip markdown fences if present

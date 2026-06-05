@@ -63,12 +63,12 @@ def create_meal_log(
         item = MealDetectedItem(
             meal_log_id=meal.id,
             food_name=item_data.food_name,
-            confidence_pct=item_data.confidence_pct,
+            confidence_pct=round(item_data.confidence_pct, 1) if item_data.confidence_pct else None,
             quantity_desc=item_data.quantity_desc,
-            carbs_g=item_data.carbs_g,
-            calories=item_data.calories,
-            protein_g=item_data.protein_g,
-            fat_g=item_data.fat_g,
+            carbs_g=round(item_data.carbs_g, 2) if item_data.carbs_g else None,
+            calories=round(item_data.calories, 2) if item_data.calories else None,
+            protein_g=round(item_data.protein_g, 2) if item_data.protein_g else None,
+            fat_g=round(item_data.fat_g, 2) if item_data.fat_g else None,
         )
         db.add(item)
 

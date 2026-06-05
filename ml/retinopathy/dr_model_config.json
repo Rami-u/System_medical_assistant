@@ -1,0 +1,39 @@
+{
+    "model_name": "efficientnet_b4_dr_regression",
+    "num_classes": 5,
+    "img_size": 380,
+    "thresholds": [
+        0.5141521140933041,
+        1.4970723733305928,
+        2.41804276406765,
+        3.5273429051041614
+    ],
+    "labels": [
+        "No DR",
+        "Mild",
+        "Moderate",
+        "Severe",
+        "Proliferative DR"
+    ],
+    "normalization": {
+        "mean": [
+            0.485,
+            0.456,
+            0.406
+        ],
+        "std": [
+            0.229,
+            0.224,
+            0.225
+        ]
+    },
+    "preprocessing": "circle_crop",
+    "metrics": {
+        "test_qwk": 0.9283172549116454,
+        "test_accuracy": 82.01634877384197,
+        "precision": 0.8455370972114459,
+        "recall": 0.8201634877384196,
+        "f1": 0.8270963763559428,
+        "mean_auc": 0.91417936807266
+    }
+}
