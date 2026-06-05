@@ -33,11 +33,11 @@ logger = logging.getLogger(__name__)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
 # Vision model must support image input — text-only models like gpt-oss-120b CANNOT analyze images
-OPENROUTER_VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL", "google/gemma-4-31b-it:free")
+OPENROUTER_VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL", "openrouter/free")
 # Fallback vision models to try when the primary is rate-limited
 VISION_FALLBACK_MODELS = [
-    "google/gemma-4-26b-a4b-it:free",
-    "nvidia/nemotron-nano-12b-v2-vl:free",
+    "qwen/qwen3-vl-30b-a3b-thinking",
+    "qwen/qwen3-vl-235b-a22b-thinking",
 ]
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -565,11 +565,18 @@ def analyze_meal_image(image_bytes: bytes, mime_type: str) -> dict:
     if cnn_result:
         # API unavailable — return CNN results as a single item
         logger.info("Using CNN-only results (API unavailable)")
+        hour = datetime.now().hour
+        if hour < 11:
+            fallback_name = "Breakfast"
+        elif hour < 16:
+            fallback_name = "Lunch"
+        else:
+            fallback_name = "Dinner"
         return {
-            "meal_name": cnn_result.get("meal_name", "Detected Meal"),
+            "meal_name": fallback_name,
             "items": [
                 {
-                    "food_name": "Detected Meal (CNN estimate)",
+                    "food_name": fallback_name + " (AI estimate)",
                     "quantity_desc": f"~{cnn_result.get('mass_g', 0):.0f}g",
                     "confidence_pct": 80.0,
                     "carbs_g": cnn_result.get("carbs_g", 0),
@@ -633,7 +640,7 @@ def _call_vision_api(image_bytes: bytes, mime_type: str) -> dict | None:
     models_to_try = [OPENROUTER_VISION_MODEL] + VISION_FALLBACK_MODELS
 
     for vision_model in models_to_try:
-        text = _call_openrouter(messages, max_tokens=1500, model=vision_model, timeout=3)
+        text = _call_openrouter(messages, max_tokens=1500, model=vision_model, timeout=15)
         logger.info("Vision model (%s) raw response: %s", vision_model, text[:300])
 
         # Strip markdown fences if present

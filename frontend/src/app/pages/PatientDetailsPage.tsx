@@ -513,6 +513,23 @@ useEffect(() => {
               </div>
             </div>
 
+            {/* ── Health Preferences ── */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+              <h3 className="text-slate-900 text-sm mb-4" style={{ fontWeight: 700 }}>Health Preferences</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: "Glucose Target",  value: p.preferences ? `${p.preferences.min_glucose} – ${p.preferences.max_glucose} mg/dL` : "70 – 140 mg/dL" },
+                  { label: "Carb Limit",      value: p.preferences?.carb_limit_g ? `${p.preferences.carb_limit_g}g` : "-" },
+                  { label: "Diet Type",       value: p.preferences?.diet_type || "Standard" },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-slate-400 text-xs mb-0.5">{label}</p>
+                    <p className="text-slate-900 text-sm" style={{ fontWeight: 600 }}>{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* ── Clinical Notes ── */}
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-50">

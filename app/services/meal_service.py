@@ -44,7 +44,7 @@ def create_meal_log(
     total_cals = data.total_calories
     if data.detected_items:
         if total_carbs is None:
-            total_carbs = sum(i.carbs_g or 0 for i in data.detected_items)
+            total_carbs = round(sum(i.carbs_g or 0 for i in data.detected_items), 2)
         if total_cals is None:
             total_cals = sum(i.calories or 0 for i in data.detected_items)
 
@@ -52,7 +52,7 @@ def create_meal_log(
         patient_id=patient_id,
         meal_name=data.meal_name,
         image_url=data.image_url,
-        total_carbs_g=total_carbs,
+        total_carbs_g=round(total_carbs, 2) if total_carbs is not None else None,
         total_calories=int(total_cals) if total_cals else None,
         meal_time=data.meal_time,
     )

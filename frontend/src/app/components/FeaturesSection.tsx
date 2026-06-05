@@ -90,7 +90,10 @@ const colorMap: Record<string, { bg: string; icon: string; tag: string; border: 
   },
 };
 
+import { useNavigate } from "react-router";
+
 export function FeaturesSection() {
+  const navigate = useNavigate();
   return (
     <section id="features" className="py-24 bg-slate-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -155,7 +158,10 @@ export function FeaturesSection() {
             Join thousands of users who caught their condition early and changed their lives.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <button className="bg-white text-blue-600 hover:bg-blue-50 px-6 py-3 rounded-xl font-semibold text-sm transition-colors shadow-md">
+            <button
+              onClick={() => navigate("/auth?tab=register")}
+              className="bg-white text-blue-600 hover:bg-blue-50 px-6 py-3 rounded-xl font-semibold text-sm transition-colors shadow-md"
+            >
               Register — It's Free
             </button>
             

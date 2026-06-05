@@ -325,9 +325,7 @@ export default function MealLogsPage() {
   const uploadRef = useRef<HTMLInputElement>(null);
   const cameraFileRef = useRef<HTMLInputElement>(null);
 
-  // ── Enrichment polling state (Phase 2 of two-phase architecture)
-  const [enrichTaskId, setEnrichTaskId] = useState<string | null>(null);
-  const [enriching, setEnriching]       = useState(false);
+
 
   useEffect(() => {
     const fetchMeals = async () => {
@@ -348,7 +346,7 @@ export default function MealLogsPage() {
               unit: i.quantity_desc || "",
               confidence: i.confidence_pct || 100
             })),
-            carbEstimate: d.total_carbs_g || 0,
+            carbEstimate: Math.round(d.total_carbs_g || 0),
             time: dObj.toTimeString().slice(0, 5),
             date: dObj.toISOString().split("T")[0],
             imageUrl: d.image_url || "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&q=80"
@@ -451,62 +449,11 @@ export default function MealLogsPage() {
       setEditedFoods(foods.map((f) => ({ ...f })));
       setSelectedType(mealType);
       setScanStage("detected");
-
-      // Phase 2: Start enrichment polling if task_id was returned
-      if (apiResult.task_id) {
-        setEnrichTaskId(apiResult.task_id);
-        setEnriching(true);
-        pollEnrichment(apiResult.task_id, foods);
-      }
     } catch (err: any) {
       console.error("Scan failed:", err.response?.status, err.response?.data || err.message);
       alert(err.response?.data?.detail || "AI analysis failed. Please try again.");
       setScanStage("preview");
     }
-  };
-
-  // ─── Enrichment polling (Phase 2 of two-phase meal analysis)
-  const pollEnrichment = async (taskId: string, fallbackFoods: DetectedFood[]) => {
-    const MAX_POLLS = 5;
-    const POLL_INTERVAL = 2000;
-
-    for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-
-      try {
-        const res = await mealApi.getEnrichment(taskId);
-        if (res.status === "done") {
-          if (res.data && res.data.items && res.data.items.length > 0) {
-            // Enrichment succeeded — update foods with Vision API data
-            const enrichedFoods: DetectedFood[] = res.data.items.map((item: any) => ({
-              name: item.food_name || "Unknown food",
-              carbs: Math.round(Number(item.carbs_g ?? 0)),
-              unit: item.quantity_desc || "1 serving",
-              confidence: Math.round(Number(item.confidence_pct ?? 90)),
-              calories: Math.round(Number(item.calories ?? 0)),
-              protein: Math.round(Number(item.protein_g ?? 0)),
-              fat: Math.round(Number(item.fat_g ?? 0)),
-              mass: Math.round(Number(item.mass_g ?? 0)),
-            }));
-            setEditedFoods(enrichedFoods);
-            setDetected((prev) =>
-              prev ? { ...prev, label: res.data!.meal_name || prev.label, foods: enrichedFoods } : prev
-            );
-            console.log("Enrichment applied:", enrichedFoods.length, "items");
-          }
-          setEnriching(false);
-          setEnrichTaskId(null);
-          return;
-        }
-      } catch (err) {
-        console.warn("Enrichment poll failed:", err);
-      }
-    }
-
-    // Polling exhausted — keep CNN result
-    setEnriching(false);
-    setEnrichTaskId(null);
-    console.log("Enrichment polling exhausted, keeping CNN result");
   };
 
   // ─── Edit detected carbs inline
@@ -631,7 +578,7 @@ export default function MealLogsPage() {
     </aside>
   );
 
-  const totalCarbsToday = mealEntries.filter(m => m.date === todayStr).reduce((s, m) => s + m.carbEstimate, 0);
+  const totalCarbsToday = Math.round(mealEntries.filter(m => m.date === todayStr).reduce((s, m) => s + m.carbEstimate, 0));
 
   return (
     <div className="flex h-screen bg-[#F7F8FC] overflow-hidden">
@@ -806,11 +753,6 @@ export default function MealLogsPage() {
                             <p className="text-slate-900 text-sm" style={{ fontWeight: 700 }}>{detected.label}</p>
                             <div className="flex items-center gap-1.5">
                               <p className="text-slate-400 text-xs">AI-detected · review and confirm</p>
-                              {enriching && (
-                                <span className="flex items-center gap-1 text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full font-medium">
-                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />Enriching…
-                                </span>
-                              )}
                             </div>
                           </div>
                           <div className="flex gap-1.5">
@@ -935,7 +877,7 @@ export default function MealLogsPage() {
                         <div className="bg-emerald-50 rounded-xl p-2.5 text-center">
                           <p className="text-emerald-400 text-[10px] mb-0.5">Total Carbs</p>
                           <p className="text-emerald-700 text-sm" style={{ fontWeight: 700 }}>
-                            {mealEntries.reduce((s, m) => s + m.carbEstimate, 0)}g
+                            {Math.round(mealEntries.reduce((s, m) => s + m.carbEstimate, 0))}g
                           </p>
                         </div>
                         <div className="bg-slate-50 rounded-xl p-2.5 text-center">

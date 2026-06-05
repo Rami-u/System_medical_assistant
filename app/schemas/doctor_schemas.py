@@ -63,6 +63,7 @@ class PatientStatsBlock(BaseModel):
     avg_glucose: int
     latest_glucose: int
     bmi: Optional[float] = None
+    risk_level: str = "low"
 
 
 class PhysicalBlock(BaseModel):
@@ -111,6 +112,13 @@ class ClinicalNoteItem(BaseModel):
     created_at: datetime
 
 
+class PatientPreferencesBlock(BaseModel):
+    min_glucose: float = 70
+    max_glucose: float = 140
+    carb_limit_g: float = 60
+    diet_type: Optional[str] = None
+
+
 class DoctorPatientProfileResponse(BaseModel):
     patient_id: int
     full_name: str
@@ -121,6 +129,7 @@ class DoctorPatientProfileResponse(BaseModel):
     email: Optional[str] = None
     stats: PatientStatsBlock
     physical: PhysicalBlock
+    preferences: PatientPreferencesBlock
     glucose_trend: list[GlucoseTrendPoint]
     weekly_avg_glucose: list[WeeklyAvgPoint]
     daily_carb_intake: list[DailyCarbPoint]

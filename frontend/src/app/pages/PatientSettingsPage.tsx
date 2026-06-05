@@ -24,7 +24,8 @@ interface PersonalInfo {
 interface HealthPreferences {
   targetGlucoseMin: string;
   targetGlucoseMax: string;
-  dietaryRestrictions: string[];
+  carbLimit: string;
+  dietType: string;
 }
 
 interface NotificationSettings {
@@ -127,7 +128,8 @@ export default function PatientSettingsPage() {
   const [healthPreferences, setHealthPreferences] = useState<HealthPreferences>({
     targetGlucoseMin: "70",
     targetGlucoseMax: "140",
-    dietaryRestrictions: ["Gluten-Free", "No Restrictions"],
+    carbLimit: "60",
+    dietType: "No Restrictions",
   });
 
   const [notifications, setNotifications] = useState<NotificationSettings>({
@@ -141,30 +143,26 @@ export default function PatientSettingsPage() {
     const fetchProfile = async () => {
       try {
         setLoading(true);
-        const res = await settingsApi.getProfile();
+        const [profileRes, prefsRes] = await Promise.all([
+          settingsApi.getProfile(),
+          settingsApi.getPreferences(),
+        ]);
         
         setPersonalInfo({
-          name: res.full_name || user?.name || "",
+          name: profileRes.full_name || user?.name || "",
           email: user?.email || "",
-          age: res.age ? res.age.toString() : "",
-          weight: res.weight_kg ? res.weight_kg.toString() : "",
-          height: res.height_cm ? res.height_cm.toString() : "",
-          assignedDoctor: res.doctor_name || "Not assigned",
+          age: profileRes.age ? profileRes.age.toString() : "",
+          weight: profileRes.weight_kg ? profileRes.weight_kg.toString() : "",
+          height: profileRes.height_cm ? profileRes.height_cm.toString() : "",
+          assignedDoctor: profileRes.doctor_name || "Not assigned",
         });
 
-        if (res.preferences) {
-          setHealthPreferences({
-            targetGlucoseMin: res.preferences.target_glucose_min?.toString() || "70",
-            targetGlucoseMax: res.preferences.target_glucose_max?.toString() || "140",
-            dietaryRestrictions: res.preferences.dietary_restrictions || [],
-          });
-          setNotifications({
-            emailAlerts: res.preferences.email_alerts ?? true,
-            inAppAlerts: res.preferences.in_app_alerts ?? true,
-            glucoseAlerts: res.preferences.glucose_alerts ?? true,
-            doctorMessages: true,
-          });
-        }
+        setHealthPreferences({
+          targetGlucoseMin: prefsRes.min_glucose?.toString() || "70",
+          targetGlucoseMax: prefsRes.max_glucose?.toString() || "140",
+          carbLimit: prefsRes.carb_limit_g?.toString() || "60",
+          dietType: prefsRes.diet_type || "No Restrictions",
+        });
       } catch (err: any) {
         setError(err.message || "Failed to load profile settings");
       } finally {
@@ -184,12 +182,10 @@ export default function PatientSettingsPage() {
     setHealthPreferences((prev) => ({ ...prev, [field]: value }));
   };
 
-  const toggleDietaryRestriction = (restriction: string) => {
+  const setDietType = (diet: string) => {
     setHealthPreferences((prev) => ({
       ...prev,
-      dietaryRestrictions: prev.dietaryRestrictions.includes(restriction)
-        ? prev.dietaryRestrictions.filter((r) => r !== restriction)
-        : [...prev.dietaryRestrictions, restriction],
+      dietType: prev.dietType === diet ? "No Restrictions" : diet,
     }));
   };
 
@@ -200,26 +196,47 @@ export default function PatientSettingsPage() {
   const handleSave = async () => {
     try {
       setSaving(true);
-      
-      await settingsApi.updateProfile({
-        full_name: personalInfo.name,
-        height_cm: personalInfo.height ? parseFloat(personalInfo.height) : undefined,
-        weight_kg: personalInfo.weight ? parseFloat(personalInfo.weight) : undefined,
-      });
 
-      await settingsApi.updatePreferences({
-        target_glucose_min: parseInt(healthPreferences.targetGlucoseMin),
-        target_glucose_max: parseInt(healthPreferences.targetGlucoseMax),
-        dietary_restrictions: healthPreferences.dietaryRestrictions,
-        email_alerts: notifications.emailAlerts,
-        in_app_alerts: notifications.inAppAlerts,
-        glucose_alerts: notifications.glucoseAlerts,
-      });
+      let profileErr: any = null;
+      let prefsErr: any = null;
 
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
-    } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to save settings");
+      try {
+        const ageNum = parseInt(personalInfo.age);
+        const dob = isNaN(ageNum) ? undefined : new Date(new Date().getFullYear() - ageNum, 0, 1).toISOString().split('T')[0];
+        await settingsApi.updateProfile({
+          full_name: personalInfo.name,
+          height_cm: personalInfo.height ? parseFloat(personalInfo.height) : undefined,
+          weight_kg: personalInfo.weight ? parseFloat(personalInfo.weight) : undefined,
+          dob,
+        });
+      } catch (e: any) {
+        profileErr = e;
+      }
+
+      try {
+        const prefsRes = await settingsApi.updatePreferences({
+          min_glucose: parseInt(healthPreferences.targetGlucoseMin) || 70,
+          max_glucose: parseInt(healthPreferences.targetGlucoseMax) || 140,
+          carb_limit_g: parseInt(healthPreferences.carbLimit) || 60,
+          diet_type: healthPreferences.dietType || null,
+        });
+        setHealthPreferences({
+          targetGlucoseMin: prefsRes.min_glucose?.toString() || healthPreferences.targetGlucoseMin,
+          targetGlucoseMax: prefsRes.max_glucose?.toString() || healthPreferences.targetGlucoseMax,
+          carbLimit: prefsRes.carb_limit_g?.toString() || healthPreferences.carbLimit,
+          dietType: prefsRes.diet_type || healthPreferences.dietType,
+        });
+      } catch (e: any) {
+        prefsErr = e;
+      }
+
+      if (profileErr || prefsErr) {
+        const msg = profileErr?.response?.data?.detail || prefsErr?.response?.data?.detail || "Failed to save settings";
+        alert(msg);
+      } else {
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 3000);
+      }
     } finally {
       setSaving(false);
     }
@@ -521,28 +538,23 @@ export default function PatientSettingsPage() {
                     {dietaryOptions.map((option) => (
                       <button
                         key={option}
-                        onClick={() => toggleDietaryRestriction(option)}
-                        className={`px-3 py-2.5 rounded-xl border-2 text-xs font-semibold transition-all ${
-                          healthPreferences.dietaryRestrictions.includes(option)
-                            ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                            : "border-slate-200 text-slate-600 hover:border-slate-300"
+                        onClick={() => setDietType(option)}
+                        className={`px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                          healthPreferences.dietType === option
+                            ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                            : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
                         }`}
                       >
                         {option}
                       </button>
                     ))}
                   </div>
-                  {healthPreferences.dietaryRestrictions.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {healthPreferences.dietaryRestrictions.map((restriction) => (
-                        <span
-                          key={restriction}
-                          className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-semibold"
-                        >
-                          <CheckCircle className="w-3 h-3" />
-                          {restriction}
-                        </span>
-                      ))}
+                  {healthPreferences.dietType && healthPreferences.dietType !== "No Restrictions" && (
+                    <div className="mt-3">
+                      <span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-full text-xs font-semibold">
+                        <CheckCircle className="w-3 h-3" />
+                        {healthPreferences.dietType}
+                      </span>
                     </div>
                   )}
                 </div>

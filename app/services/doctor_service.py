@@ -377,6 +377,15 @@ def get_patient_profile(user_id: int, patient_id: int, db: Session) -> schemas.D
     avg_glucose = int(sum(float(g.glucose_value) for g in glucose_logs) / len(glucose_logs)) if glucose_logs else 0
     latest_glucose = int(glucose_logs[0].glucose_value) if glucose_logs else 0
 
+    # Latest screening risk level
+    latest_screening = db.execute(
+        select(Screening.risk_level)
+        .where(Screening.patient_id == patient_id)
+        .order_by(Screening.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    risk_level = (latest_screening or "low").lower()
+
     # Glucose trend (last 14 days)
     fourteen_days_ago = today - timedelta(days=14)
     fourteen_days_ago_naive = fourteen_days_ago.replace(tzinfo=None)
@@ -468,12 +477,19 @@ def get_patient_profile(user_id: int, patient_id: int, db: Session) -> schemas.D
             avg_glucose=avg_glucose,
             latest_glucose=latest_glucose,
             bmi=bmi,
+            risk_level=risk_level,
         ),
         physical=schemas.PhysicalBlock(
             height_cm=float(patient.height_cm) if patient.height_cm else None,
             weight_kg=float(patient.weight_kg) if patient.weight_kg else None,
             bmi=bmi,
             diagnosis=patient.diabetes_type.type_name if patient.diabetes_type else None,
+        ),
+        preferences=schemas.PatientPreferencesBlock(
+            min_glucose=float(patient.health_preferences.min_glucose) if patient.health_preferences else 70.0,
+            max_glucose=float(patient.health_preferences.max_glucose) if patient.health_preferences else 140.0,
+            carb_limit_g=float(patient.health_preferences.carb_limit_g) if patient.health_preferences else 60.0,
+            diet_type=patient.health_preferences.diet_type if patient.health_preferences else None,
         ),
         glucose_trend=glucose_trend,
         weekly_avg_glucose=weekly_avg_glucose,
