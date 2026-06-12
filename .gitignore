@@ -16,9 +16,6 @@ __pycache__/
 # Secrets
 .env
 
-# ML Models (large binary files)
-ml/nutrition/nutrition_cnn.pkl
-ml/retinopathy/best_dr_model.pth
 
 # OS
 .DS_Store
