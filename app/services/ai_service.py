@@ -1,21 +1,24 @@
 """
-AiService — conversation management with OpenRouter AI integration.
+AiService — conversation management with NVIDIA NIM (vision) + OpenRouter (chat).
 
 Uses selectinload to prevent N+1 when loading messages.
 Connects chatbot to patient health data (glucose, meals, screenings).
+
+Vision pipeline:  NVIDIA NIM  (free, nemotron-nano-12b-v2-vl + fallbacks)
+Chat pipeline:    OpenRouter  (free, gpt-oss-120b)
+Screening:        OpenRouter  (free, gpt-oss-120b)
 """
 
 from datetime import datetime, timezone, timedelta
 import io
 import logging
+import json
+import os
+import requests as http_requests
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
-
-import json
-import os
-import requests as http_requests
 
 from app.models.ai_conversation import AiConversation, AiMessage
 from app.models.patient_doctor import Patient
@@ -29,17 +32,23 @@ from app.schemas.ai_schemas import (
 
 logger = logging.getLogger(__name__)
 
-# ── OpenRouter config ─────────────────────────────────────────────────────────
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
-# Vision model must support image input — text-only models like gpt-oss-120b CANNOT analyze images
-OPENROUTER_VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL", "openrouter/free")
-# Fallback vision models to try when the primary is rate-limited
+# ── NVIDIA NIM config (vision) ────────────────────────────────────────────────
+NVIDIA_API_KEY   = os.getenv("NVIDIA_API_KEY", "")
+NVIDIA_BASE_URL  = "https://integrate.api.nvidia.com/v1/chat/completions"
+
+# Primary vision model — multi-image + visual Q&A, free on NIM
+NVIDIA_VISION_MODEL = os.getenv("NVIDIA_VISION_MODEL", "nvidia/nemotron-nano-12b-v2-vl")
+
+# Fallback vision models tried in order when primary is rate-limited or unavailable
 VISION_FALLBACK_MODELS = [
-    "qwen/qwen3-vl-30b-a3b-thinking",
-    "qwen/qwen3-vl-235b-a22b-thinking",
+    "meta/llama-3.2-11b-vision-instruct",
+    "nvidia/cosmos-reason2-8b",
 ]
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# ── OpenRouter config (chat + screening) ─────────────────────────────────────
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_URL     = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL   = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
 
 
 # ──────────────────────────────────────────────
@@ -52,15 +61,15 @@ class AIModelService:
     diabetes screening and food-image nutrition estimation.
     """
 
-    _simple_model = None
+    _simple_model  = None
     _advanced_model = None
-    _vision_model = None
+    _vision_model  = None
 
     # Normalization stats from training — needed to denormalize model outputs
     # Order matches model output: [total_calories, total_fat, total_carb, total_protein]
-    _target_names: list[str] = []
+    _target_names: list[str]        = []
     _target_means: dict[str, float] = {}
-    _target_stds: dict[str, float] = {}
+    _target_stds:  dict[str, float] = {}
 
     @classmethod
     def load_models(cls) -> None:
@@ -130,7 +139,7 @@ class AIModelService:
             nn.ReLU(inplace=True),            # [2]
             nn.BatchNorm1d(512),              # [3]
             nn.Dropout(p=0.3),                # [4]
-            nn.Linear(512, 256),              # [5]
+            nn.Linear(512, 256),             # [5]
             nn.ReLU(inplace=True),            # [6]
             nn.BatchNorm1d(256),              # [7]
             nn.Dropout(p=0.2),                # [8]
@@ -235,6 +244,10 @@ class AIModelService:
         }
 
 
+# ──────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────
+
 def _resolve_patient_id(user_id: int, db: Session) -> int:
     stmt = select(Patient.id).where(Patient.user_id == user_id)
     pid = db.execute(stmt).scalar_one_or_none()
@@ -276,7 +289,7 @@ def _build_patient_context(patient_id: int, db: Session) -> str:
         values = [float(g.glucose_value) for g in glucose_logs]
         avg_g = sum(values) / len(values)
         high_count = sum(1 for v in values if v >= 126)
-        low_count = sum(1 for v in values if v < 70)
+        low_count  = sum(1 for v in values if v < 70)
 
         parts.append(
             f"RECENT GLUCOSE (last 7 days, {len(glucose_logs)} readings):\n"
@@ -334,23 +347,109 @@ def _build_patient_context(patient_id: int, db: Session) -> str:
 
 
 # ──────────────────────────────────────────────
-# OpenRouter API call
+# NVIDIA NIM API call (vision)
 # ──────────────────────────────────────────────
 
-def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | None = None, timeout: int = 60) -> str:
-    """Call OpenRouter API with retry on rate-limit (429).
+def _call_nvidia_nim_vision(
+    messages: list[dict],
+    model: str,
+    max_tokens: int = 1500,
+    timeout: int = 20,
+) -> str:
+    """
+    Call NVIDIA NIM API for vision inference.
 
     Args:
-        model: Override the default model. Use OPENROUTER_VISION_MODEL for image tasks.
-        timeout: HTTP request timeout in seconds (3 for vision, 60 for chat).
+        messages:   OpenAI-format messages list (with image_url content blocks).
+        model:      NIM model slug (e.g. 'nvidia/nemotron-nano-12b-v2-vl').
+        max_tokens: Max tokens in the response (default 1500).
+        timeout:    HTTP timeout in seconds (default 20).
+
+    Returns:
+        Response text, or empty string on any failure.
+    """
+    import time as _time
+
+    if not NVIDIA_API_KEY:
+        logger.warning("NVIDIA_API_KEY is not set — skipping NIM vision call.")
+        return ""
+
+    headers = {
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": 0.7,
+    }
+
+    # Retry up to 3 times with exponential backoff on 429 rate-limit
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            logger.info(
+                "Calling NVIDIA NIM model=%s (attempt %d/%d, timeout=%ds)",
+                model, attempt + 1, max_retries, timeout,
+            )
+            resp = http_requests.post(NVIDIA_BASE_URL, headers=headers, json=payload, timeout=timeout)
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"].get("content", "")
+            return content.strip()
+
+        except http_requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code
+            logger.error("NVIDIA NIM HTTP error %s: %s", status_code, e.response.text[:200])
+            if status_code == 429:
+                wait = 0.5 * (2 ** attempt)  # 0.5s, 1s, 2s
+                logger.info("Rate limited. Waiting %.1fs before retry...", wait)
+                _time.sleep(wait)
+                continue
+            return ""  # Non-retryable error — skip to next fallback model
+
+        except http_requests.exceptions.Timeout:
+            logger.warning("NVIDIA NIM timed out after %ds (attempt %d)", timeout, attempt + 1)
+            continue
+
+        except Exception as exc:
+            logger.error("NVIDIA NIM call failed: %s", exc)
+            return ""
+
+    # All retries exhausted
+    logger.warning("NVIDIA NIM model=%s exhausted all retries.", model)
+    return ""
+
+
+# ──────────────────────────────────────────────
+# OpenRouter API call (chat + screening)
+# ──────────────────────────────────────────────
+
+def _call_openrouter(
+    messages: list[dict],
+    max_tokens: int = 1024,
+    model: str | None = None,
+    timeout: int = 60,
+) -> str:
+    """
+    Call OpenRouter API with retry on rate-limit (429).
+
+    Args:
+        messages:   OpenAI-format messages list.
+        max_tokens: Max tokens in the response.
+        model:      Override the default OPENROUTER_MODEL.
+        timeout:    HTTP timeout in seconds.
+
+    Returns:
+        Response text, or a user-facing error string on failure.
     """
     import time as _time
 
     if not OPENROUTER_API_KEY:
         logger.warning("OPENROUTER_API_KEY is not set — returning fallback.")
         return (
-            "I'm your Diacheck AI assistant. The AI service is not configured yet. "
-            "Please set the OPENROUTER_API_KEY in your .env file to enable AI responses."
+            "I'm your DiaCheck AI assistant. The AI service is not configured yet. "
+            "Please set OPENROUTER_API_KEY in your .env file to enable AI responses."
         )
 
     use_model = model or OPENROUTER_MODEL
@@ -367,20 +466,22 @@ def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | 
         "temperature": 0.7,
     }
 
-    # Retry up to 3 times with exponential backoff on 429 rate-limit
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            logger.info("Calling OpenRouter model=%s (attempt %d/%d, timeout=%ds)", use_model, attempt + 1, max_retries, timeout)
+            logger.info(
+                "Calling OpenRouter model=%s (attempt %d/%d, timeout=%ds)",
+                use_model, attempt + 1, max_retries, timeout,
+            )
             resp = http_requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=timeout)
             resp.raise_for_status()
             data = resp.json()
             content = data["choices"][0]["message"].get("content")
             if content:
                 return content.strip()
-            # Some models return None content with reasoning — skip
             logger.warning("Model %s returned empty content, attempt %d", use_model, attempt + 1)
             return "AI returned an empty response. Please try again."
+
         except http_requests.exceptions.HTTPError as e:
             status_code = e.response.status_code
             logger.error("OpenRouter HTTP error %s: %s", status_code, e.response.text[:300])
@@ -388,11 +489,13 @@ def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | 
                 wait = 0.5 * (2 ** attempt)  # 0.5s, 1s, 2s
                 logger.info("Rate limited. Waiting %.1fs before retry...", wait)
                 _time.sleep(wait)
-                continue  # retry
+                continue
             return f"AI service error (HTTP {status_code}). Please try again shortly."
+
         except http_requests.exceptions.Timeout:
-            logger.warning("OpenRouter request timed out after %ds (attempt %d)", timeout, attempt + 1)
+            logger.warning("OpenRouter timed out after %ds (attempt %d)", timeout, attempt + 1)
             continue
+
         except Exception as exc:
             logger.error("OpenRouter call failed: %s", exc)
             return (
@@ -400,15 +503,17 @@ def _call_openrouter(messages: list[dict], max_tokens: int = 1024, model: str | 
                 "service issue. Please try again shortly."
             )
 
-    # All retries exhausted
     return "AI service is temporarily busy. Please wait a moment and try again."
 
 
+# ──────────────────────────────────────────────
+# Chat response generator
+# ──────────────────────────────────────────────
 
 def _generate_ai_response(user_message: str, patient_context: str = "") -> str:
     """Generate AI response using OpenRouter, with patient data context."""
     system_prompt = (
-        "You are Diacheck AI, a helpful medical assistant specializing in "
+        "You are DiaCheck AI, a helpful medical assistant specializing in "
         "diabetes management. You provide evidence-based guidance on blood sugar "
         "management, diet, exercise, medication adherence, and general wellness "
         "for diabetic patients. Always remind users to consult their doctor for "
@@ -421,11 +526,15 @@ def _generate_ai_response(user_message: str, patient_context: str = "") -> str:
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_message},
+        {"role": "user",   "content": user_message},
     ]
 
     return _call_openrouter(messages)
 
+
+# ──────────────────────────────────────────────
+# Conversation CRUD
+# ──────────────────────────────────────────────
 
 def create_conversation(data: AiConversationCreate, user_id: int, db: Session) -> AiConversationResponse:
     patient_id = _resolve_patient_id(user_id, db)
@@ -508,100 +617,16 @@ def get_conversation_detail(conversation_id: int, user_id: int, db: Session) -> 
 # Phase 4: Meal & Screening AI Integrations
 # ──────────────────────────────────────────────
 
-def analyze_meal_image(image_bytes: bytes, mime_type: str) -> dict:
-    """
-    Hybrid meal analysis: CNN primary + Vision API enrichment.
-
-    1. CNN (PRIMARY): Fast, offline nutrition estimation — always runs first.
-       Returns total calories, fat, carbs, protein for the whole plate.
-    2. Vision API (ENRICHMENT): Identifies individual food items with names.
-       If API is available, it enriches the CNN totals with item-by-item detail.
-       If API fails (rate-limited, offline), CNN results are still returned.
-
-    Returns {meal_name, items: [{food_name, carbs_g, calories, protein_g, fat_g, ...}]}
-    """
-    import base64
-
-    # ── Step 1: CNN Primary — always runs ──────────────────────────────────
-    cnn_result = None
-    try:
-        cnn_result = AIModelService.run_vision_model(image_bytes)
-        if cnn_result:
-            logger.info(
-                "CNN prediction: cal=%.1f, carbs=%.1fg, fat=%.1fg, prot=%.1fg",
-                cnn_result.get("calories", 0), cnn_result.get("carbs_g", 0),
-                cnn_result.get("fat_g", 0), cnn_result.get("protein_g", 0),
-            )
-    except Exception as e:
-        logger.warning("CNN model failed: %s — falling back to API only", e)
-
-    # ── Step 2: Vision API Enrichment — try to get food item names ─────────
-    api_result = None
-    if OPENROUTER_API_KEY:
-        try:
-            api_result = _call_vision_api(image_bytes, mime_type)
-            if api_result:
-                logger.info(
-                    "API identified %d items for '%s'",
-                    len(api_result.get("items", [])), api_result.get("meal_name", "?"),
-                )
-        except Exception as e:
-            logger.warning("Vision API failed: %s — using CNN results only", e)
-
-    # ── Step 3: Merge results ──────────────────────────────────────────────
-    if api_result and api_result.get("items"):
-        # API returned item-level detail — use it (it includes names + nutrition)
-        # Override API totals with CNN nutrition if CNN is available (more accurate)
-        if cnn_result:
-            api_result["cnn_totals"] = {
-                "calories": cnn_result.get("calories", 0),
-                "carbs_g": cnn_result.get("carbs_g", 0),
-                "fat_g": cnn_result.get("fat_g", 0),
-                "protein_g": cnn_result.get("protein_g", 0),
-                "mass_g": cnn_result.get("mass_g", 0),
-            }
-        return api_result
-
-    if cnn_result:
-        # API unavailable — return CNN results as a single item
-        logger.info("Using CNN-only results (API unavailable)")
-        hour = datetime.now().hour
-        if hour < 11:
-            fallback_name = "Breakfast"
-        elif hour < 16:
-            fallback_name = "Lunch"
-        else:
-            fallback_name = "Dinner"
-        return {
-            "meal_name": fallback_name,
-            "items": [
-                {
-                    "food_name": fallback_name + " (AI estimate)",
-                    "quantity_desc": f"~{cnn_result.get('mass_g', 0):.0f}g",
-                    "confidence_pct": 80.0,
-                    "carbs_g": cnn_result.get("carbs_g", 0),
-                    "calories": cnn_result.get("calories", 0),
-                    "protein_g": cnn_result.get("protein_g", 0),
-                    "fat_g": cnn_result.get("fat_g", 0),
-                }
-            ],
-        }
-
-    # Both failed
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Unable to analyze meal image. Please try again.",
-    )
-
-
 def _call_vision_api(image_bytes: bytes, mime_type: str) -> dict | None:
     """
-    Call OpenRouter Vision API to identify individual food items.
-    Returns parsed JSON dict or None on failure.
+    Call NVIDIA NIM Vision API to identify individual food items.
+
+    Tries NVIDIA_VISION_MODEL first, then VISION_FALLBACK_MODELS in order.
+    Returns parsed JSON dict, or None if all models fail.
     """
     import base64
 
-    b64_img = base64.b64encode(image_bytes).decode("utf-8")
+    b64_img  = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{mime_type};base64,{b64_img}"
 
     prompt = (
@@ -636,12 +661,20 @@ def _call_vision_api(image_bytes: bytes, mime_type: str) -> dict | None:
         }
     ]
 
-    # Try the primary vision model, then fallbacks on failure
-    models_to_try = [OPENROUTER_VISION_MODEL] + VISION_FALLBACK_MODELS
+    models_to_try = [NVIDIA_VISION_MODEL] + VISION_FALLBACK_MODELS
 
     for vision_model in models_to_try:
-        text = _call_openrouter(messages, max_tokens=1500, model=vision_model, timeout=15)
+        text = _call_nvidia_nim_vision(
+            messages,
+            model=vision_model,
+            max_tokens=1500,
+            timeout=20,
+        )
         logger.info("Vision model (%s) raw response: %s", vision_model, text[:300])
+
+        if not text:
+            logger.warning("Model %s returned empty response — trying next...", vision_model)
+            continue
 
         # Strip markdown fences if present
         cleaned = text
@@ -653,13 +686,105 @@ def _call_vision_api(image_bytes: bytes, mime_type: str) -> dict | None:
 
         try:
             result = json.loads(cleaned)
+             # Sanitize before returning — remove zero-nutrition hallucinations
+            result["items"] = _sanitize_api_items(result.get("items", []))
             logger.info("Parsed meal result from %s: %s", vision_model, result)
             return result
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             logger.warning("Model %s returned non-JSON — trying next...", vision_model)
             continue
 
     return None  # All models failed
+
+
+def analyze_meal_image(image_bytes: bytes, mime_type: str) -> dict:
+    """
+    Hybrid meal analysis: CNN primary + Vision API enrichment.
+
+    1. CNN (PRIMARY): Fast, offline nutrition estimation — always runs first.
+       Returns total calories, fat, carbs, protein for the whole plate.
+    2. Vision API (ENRICHMENT): NVIDIA NIM identifies individual food items with names.
+       If API is available, enriches CNN totals with item-by-item detail.
+       If API fails, CNN results are still returned.
+
+    Returns {meal_name, items: [{food_name, carbs_g, calories, protein_g, fat_g, ...}]}
+    """
+    # ── Step 1: CNN Primary — always runs ──────────────────────────────────
+    cnn_result = None
+    try:
+        cnn_result = AIModelService.run_vision_model(image_bytes)
+        if cnn_result:
+            logger.info(
+                "CNN prediction: cal=%.1f, carbs=%.1fg, fat=%.1fg, prot=%.1fg",
+                cnn_result.get("calories", 0), cnn_result.get("carbs_g", 0),
+                cnn_result.get("fat_g", 0),    cnn_result.get("protein_g", 0),
+            )
+    except Exception as e:
+        logger.warning("CNN model failed: %s — falling back to API only", e)
+
+    # ── Step 2: Vision API Enrichment — try to get food item names ─────────
+    api_result = None
+    if NVIDIA_API_KEY:
+        try:
+            api_result = _call_vision_api(image_bytes, mime_type)
+            if api_result:
+                logger.info(
+                    "API identified %d items for '%s'",
+                    len(api_result.get("items", [])), api_result.get("meal_name", "?"),
+                )
+        except Exception as e:
+            logger.warning("Vision API failed: %s — using CNN results only", e)
+
+    # ── Step 3: Merge results ──────────────────────────────────────────────
+    if api_result is not None:
+    # API responded successfully — trust it regardless of items count
+        if not api_result.get("items"):
+        # Valid response but no food detected (e.g. empty plate)
+            return {
+            "meal_name": api_result.get("meal_name", "No Food Detected"),
+            "items": [],
+        }
+    # API returned item-level detail — attach CNN totals (more accurate nutrition)
+    if cnn_result:
+        api_result["cnn_totals"] = {
+            "calories":  cnn_result.get("calories",  0),
+            "carbs_g":   cnn_result.get("carbs_g",   0),
+            "fat_g":     cnn_result.get("fat_g",     0),
+            "protein_g": cnn_result.get("protein_g", 0),
+            "mass_g":    cnn_result.get("mass_g",    0),
+        }
+    return api_result
+
+    if cnn_result:
+        # API unavailable — return CNN results as a single fallback item
+        logger.info("Using CNN-only results (API unavailable)")
+        hour = datetime.now().hour
+        if hour < 11:
+            fallback_name = "Breakfast"
+        elif hour < 16:
+            fallback_name = "Lunch"
+        else:
+            fallback_name = "Dinner"
+        return {
+            "meal_name": fallback_name,
+            "items": [
+                {
+                    "food_name":      fallback_name + " (AI estimate)",
+                    "quantity_desc":  f"~{cnn_result.get('mass_g', 0):.0f}g",
+                    "confidence_pct": 80.0,
+                    "carbs_g":        cnn_result.get("carbs_g",   0),
+                    "calories":       cnn_result.get("calories",  0),
+                    "protein_g":      cnn_result.get("protein_g", 0),
+                    "fat_g":          cnn_result.get("fat_g",     0),
+                }
+            ],
+        }
+
+    # Both CNN and API failed
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Unable to analyze meal image. Please try again.",
+    )
 
 
 def predict_screening_risk(answers_text: str) -> dict:
@@ -694,8 +819,32 @@ def predict_screening_risk(answers_text: str) -> dict:
             text = text[:-3]
 
         return json.loads(text.strip())
+
     except json.JSONDecodeError:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="AI returned invalid JSON format"
+            detail="AI returned invalid JSON format",
         )
+
+
+def _sanitize_api_items(items: list[dict]) -> list[dict]:
+    """
+    Remove hallucinated items — real food always has non-zero nutrition.
+    Items with calories=0, carbs=0, fat=0, protein=0 are model artifacts.
+    """
+    valid = []
+    for item in items:
+        total_nutrition = (
+            float(item.get("calories",  0)) +
+            float(item.get("carbs_g",   0)) +
+            float(item.get("fat_g",     0)) +
+            float(item.get("protein_g", 0))
+        )
+        if total_nutrition > 0:
+            valid.append(item)
+        else:
+            logger.warning(
+                "Discarding hallucinated item '%s' — all nutrition values are zero.",
+                item.get("food_name", "unknown"),
+            )
+    return valid
