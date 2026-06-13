@@ -752,7 +752,7 @@ useEffect(() => {
                             <div>
                               <p className="text-slate-700 text-xs" style={{ fontWeight: 600 }}>{dt.toLocaleDateString()}</p>
                               <p className="text-slate-400 text-xs flex items-center gap-1 mt-0.5">
-                                <Clock className="w-2.5 h-2.5" />{dt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                <Clock className="w-2.5 h-2.5" />{dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                               </p>
                             </div>
                           </div>
@@ -804,7 +804,7 @@ useEffect(() => {
                             <div>
                               <p className="text-slate-700 text-xs" style={{ fontWeight: 600 }}>{dt.toLocaleDateString()}</p>
                               <p className="text-slate-400 text-xs flex items-center gap-1 mt-0.5">
-                                <Clock className="w-2.5 h-2.5" />{dt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                <Clock className="w-2.5 h-2.5" />{dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                               </p>
                             </div>
                           </div>

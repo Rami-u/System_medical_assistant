@@ -459,7 +459,7 @@ export default function PatientDashboard() {
   // Real data integration
   const conditionStatus: ConditionStatus = data?.risk_level === 'high' ? 'Critical' : data?.risk_level === 'moderate' ? 'Mid' : 'Low';
   const apiAvgGlucose = data?.today_avg_glucose ? data.today_avg_glucose.toFixed(1) : "—";
-  const apiLastMealTime = data?.last_meal_time ? new Date(data.last_meal_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "—";
+  const apiLastMealTime = data?.last_meal_time ? new Date(data.last_meal_time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—";
 
   return (
     <div className="flex h-screen bg-[#F7F8FC] overflow-hidden">

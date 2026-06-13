@@ -4,7 +4,9 @@ import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, UploadFile, File, Form, HTTPException, status
+from fastapi import APIRouter, Depends, Query, Request, UploadFile, File, Form, HTTPException, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -25,6 +27,7 @@ from app.services.ai_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["AI Chat"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 class _DateTimeEncoder(json.JSONEncoder):
@@ -81,7 +84,9 @@ def remove_conversation(
 # ── Send message (non-streaming) ───────────────
 
 @router.post("/conversations/{conversation_id}/messages", response_model=list[AiMessageResponse], summary="Send a message")
+@limiter.limit("30/minute")
 def chat(
+    request: Request,
     conversation_id: int,
     data: AiChatRequest,
     current_user: User = Depends(get_current_patient),
@@ -93,7 +98,9 @@ def chat(
 # ── Send message with image upload ─────────────
 
 @router.post("/conversations/{conversation_id}/messages-with-image", response_model=list[AiMessageResponse], summary="Send a message with an image")
+@limiter.limit("10/minute")
 async def chat_with_image(
+    request: Request,
     conversation_id: int,
     message: str = Form(""),
     file: UploadFile = File(None),
@@ -124,7 +131,9 @@ async def chat_with_image(
 # ── Streaming endpoint ─────────────────────────
 
 @router.post("/conversations/{conversation_id}/messages/stream", summary="Send a message with SSE streaming")
+@limiter.limit("30/minute")
 async def chat_stream(
+    request: Request,
     conversation_id: int,
     data: AiChatRequest,
     current_user: User = Depends(get_current_patient),

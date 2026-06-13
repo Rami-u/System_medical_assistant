@@ -15,6 +15,7 @@ import logging
 import json
 import os
 import re
+import math
 import requests as http_requests
 from typing import Generator
 
@@ -28,6 +29,7 @@ from app.models.glucose_log import GlucoseLog
 from app.models.meal_log import MealLog
 from app.models.screening import Screening
 from app.models.alert import Alert
+from app.models.audit_log import AuditLog
 from app.schemas.ai_schemas import (
     AiChatRequest, AiConversationCreate, AiConversationListItem,
     AiConversationResponse, AiMessageResponse, AiFeedbackRequest,
@@ -228,6 +230,70 @@ def _resolve_doctor_id(user_id: int, db: Session) -> int:
 
 
 # ──────────────────────────────────────────────
+# Audit logging
+# ──────────────────────────────────────────────
+
+def _log_ai_audit(
+    db: Session,
+    user_id: int | None,
+    action: str,
+    table_name: str,
+    record_id: str | None = None,
+    details: str | None = None,
+) -> None:
+    entry = AuditLog(
+        user_id=user_id,
+        action=action,
+        table_name=table_name,
+        record_id=record_id,
+        new_values=details,
+        occurred_at=datetime.now(timezone.utc),
+    )
+    db.add(entry)
+    db.flush()
+
+def _classify_glucose(value: float) -> str:
+    if value < 54:   return "CRITICAL LOW"
+    if value < 70:   return "LOW"
+    if value <= 130: return "NORMAL"
+    if value <= 180: return "SLIGHTLY ELEVATED"
+    if value <= 250: return "ELEVATED"
+    if value <= 300: return "HIGH"
+    return "CRITICAL HIGH"
+
+
+def _estimate_hba1c(avg_glucose_mgdl: float) -> float:
+    """ADA formula: eHbA1c from average glucose."""
+    return round((avg_glucose_mgdl + 46.7) / 28.7, 1)
+
+
+def _stddev(values: list[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / len(values))
+
+
+def _calc_bmi(weight_kg: float, height_cm: float) -> tuple[float, str]:
+    bmi = round(weight_kg / (height_cm / 100) ** 2, 1)
+    category = (
+        "Underweight" if bmi < 18.5 else
+        "Normal"      if bmi < 25   else
+        "Overweight"  if bmi < 30   else
+        "Obese"
+    )
+    return bmi, category
+
+
+def _fmt_dt(dt_val) -> str:
+    try:
+        dt = dt_val if isinstance(dt_val, datetime) else datetime.fromisoformat(str(dt_val))
+        return dt.strftime("%b %d %I:%M %p")
+    except Exception:
+        return "unknown time"
+
+
+# ──────────────────────────────────────────────
 # Patient context builder — feeds patient health
 # data into the AI chatbot for personalized replies
 # ──────────────────────────────────────────────
@@ -256,7 +322,7 @@ def _build_patient_context(patient_id: int, db: Session) -> str:
         for g in glucose_logs:
             try:
                 dt = g.recorded_at if isinstance(g.recorded_at, datetime) else datetime.fromisoformat(str(g.recorded_at))
-                readings.append(f"  - {dt.strftime('%b %d %H:%M')}: {g.glucose_value} mg/dL ({g.reading_type or 'unknown'})")
+                readings.append(f"  - {dt.strftime('%b %d %I:%M %p')}: {g.glucose_value} mg/dL ({g.reading_type or 'unknown'})")
             except Exception:
                 readings.append(f"  - {g.glucose_value} mg/dL ({g.reading_type or 'unknown'})")
 
@@ -298,7 +364,8 @@ def _build_patient_context(patient_id: int, db: Session) -> str:
         meals = []
         for m in meal_logs:
             carbs = f"{m.total_carbs_g}g carbs" if m.total_carbs_g else "unknown carbs"
-            meals.append(f"  - {m.meal_name or 'Meal'}: {carbs}")
+            time_str = m.meal_time.strftime("%Y-%m-%d %I:%M %p") if m.meal_time else "unknown time"
+            meals.append(f"  - [{time_str}] {m.meal_name or 'Meal'}: {carbs}")
 
         parts.append(
             f"RECENT MEALS (last 7 days, {len(meal_logs)} logged):\n"
@@ -329,8 +396,17 @@ def _build_patient_context(patient_id: int, db: Session) -> str:
     patient = db.execute(select(Patient).where(Patient.id == patient_id)).scalar_one_or_none()
     if patient:
         info = []
+        if patient.full_name:
+            info.append(f"Name: {patient.full_name}")
+        if patient.dob:
+            age = (datetime.now(timezone.utc).date() - patient.dob).days // 365
+            info.append(f"Age: {age}")
+        if patient.gender:
+            info.append(f"Gender: {patient.gender.capitalize()}")
         if patient.diabetes_type_id:
-            info.append(f"Diabetes Type ID: {patient.diabetes_type_id}")
+            dt = patient.diabetes_type
+            type_name = dt.type_name if dt else f"Type {patient.diabetes_type_id}"
+            info.append(f"Diabetes: {type_name}")
         if patient.height_cm:
             info.append(f"Height: {patient.height_cm}cm")
         if patient.weight_kg:
@@ -619,20 +695,20 @@ def _execute_function_call(call: dict, patient_id: int, db: Session) -> str:
         time_str = params.get("time", "09:00")
         days = params.get("days", ["Mon", "Tue", "Wed", "Thu", "Fri"])
         logger.info("Created reminder '%s' at %s for patient %d", title, time_str, patient_id)
-        return f"✅ Reminder set: '{title}' at {time_str} on {', '.join(days)}."
+        return f"Reminder set: '{title}' at {time_str} on {', '.join(days)}."
 
     elif func_name == "log_medication":
         med_name = params.get("medication_name", "Unknown")
         dosage = params.get("dosage", "")
         logger.info("Logged medication '%s' (%s) for patient %d", med_name, dosage, patient_id)
-        return f"✅ Logged {med_name} ({dosage})."
+        return f"Logged {med_name} ({dosage})."
 
     elif func_name == "book_appointment":
         reason = params.get("reason", "Check-up")
         pref_date = params.get("preferred_date", "TBD")
         pref_time = params.get("preferred_time", "TBD")
         logger.info("Appointment request: %s on %s at %s for patient %d", reason, pref_date, pref_time, patient_id)
-        return f"✅ Appointment request submitted for {reason} on {pref_date} at {pref_time}. A doctor will confirm."
+        return f"Appointment request submitted for {reason} on {pref_date} at {pref_time}. A doctor will confirm."
 
     return f"Unknown function: {func_name}"
 
@@ -682,22 +758,91 @@ def _check_proactive_alerts(patient_id: int, db: Session) -> list[dict]:
 # Chat response generator
 # ──────────────────────────────────────────────
 
+_SYSTEM_PROMPT_TEMPLATE = """\
+You are DiaCheck AI, a clinical diabetes management assistant embedded in the \
+DiaCheck patient platform. Your role is to help diabetic patients interpret \
+their own health data, understand their condition, and take consistent \
+day-to-day actions that support their care plan.
+
+SCOPE
+You handle: blood glucose interpretation, HbA1c trends, meal planning for \
+diabetics, physical activity guidance, medication adherence (not prescribing), \
+retinopathy screening results, and general diabetes self-management education.
+You do NOT handle: diagnosing new conditions, prescribing or changing doses, \
+interpreting lab results outside the patient's uploaded data, mental health \
+crises, or any topic unrelated to diabetes and metabolic health. Redirect \
+politely but firmly.
+
+PATIENT HEALTH DATA
+{patient_context}
+
+When the patient's data above is present:
+- Address the patient by name if shown in their profile
+- Lead with what their numbers actually say before giving advice
+- Flag patterns explicitly (e.g., "Your fasting glucose has been above 180 \
+three days in a row" not just "your glucose is elevated")
+- Adjust all recommendations to fit their specific values, not generic ranges
+- If data is missing or too old to be useful, say so and ask for an update
+
+RESPONSE FORMAT
+- Respond in plain text only. Never use asterisks, bold, markdown, or any \
+formatting characters.
+- Write at a health-literate level (8th grade reading) — avoid jargon or \
+define it immediately ("HbA1c — your 3-month average blood sugar")
+- Use short paragraphs separated by blank lines. No bullet points for \
+simple answers.
+- Use bullets only when listing 3+ items (instructions, comparisons). \
+Use dashes (-) not asterisks.
+- Match length to complexity: simple questions get 2-4 sentences; \
+clinical data discussions get structured paragraphs.
+- Respond in the same language the patient writes in (Arabic or English).
+
+SAFETY PROTOCOL
+If the patient describes ANY of these, stop all other content and respond \
+with an emergency message only:
+- Blood glucose below 54 mg/dL or above 400 mg/dL
+- Symptoms of DKA: vomiting, fruity breath, confusion, rapid breathing
+- Chest pain, severe headache, loss of vision, or loss of consciousness
+
+Emergency response format:
+"This sounds like a medical emergency. Please call emergency services \
+(123) or go to the nearest ER immediately. Do not wait."
+
+For borderline concerns (glucose 55-70 or 300-400, new symptoms): advise \
+them to contact their doctor today and provide interim self-care steps.
+
+Always close responses with a brief, non-repetitive reminder to consult \
+their care team for treatment decisions — vary the phrasing, never paste \
+the same disclaimer twice.
+
+ACTIONS
+You can perform actions on behalf of the patient. When a patient requests \
+an action (setting a reminder, logging medication, booking an appointment, \
+updating a note), append a structured action block AFTER your conversational \
+response, strictly following this schema:
+
+{function_schema}
+
+Rules for action blocks:
+- One action per response maximum
+- Only include the block when an action is explicitly requested
+- Confirm the action in plain language before the block \
+("I will set that reminder for you.")
+- Never fabricate action parameters — if you are missing info \
+(e.g., time for a reminder), ask first
+
+TONE
+Warm but clinical. You are not a friend, you are a trusted medical tool. \
+Acknowledge emotions briefly and redirect to actionable steps. \
+Never catastrophize. Never minimize. \
+If a patient is frustrated or scared, validate in one sentence, then help.
+"""
+
 def _generate_ai_response(user_message: str, patient_context: str = "", history: list[dict] | None = None) -> str:
     """Generate AI response using OpenRouter, with patient data context and conversation history."""
-    system_prompt = (
-        "You are DiaCheck AI, a helpful medical assistant specializing in "
-        "diabetes management. You provide evidence-based guidance on blood sugar "
-        "management, diet, exercise, medication adherence, and general wellness "
-        "for diabetic patients. Always remind users to consult their doctor for "
-        "medical decisions. Be concise, empathetic, and professional.\n\n"
-        "You have access to the patient's recent health data below. Use it to "
-        "give personalized, data-driven advice. Reference their actual glucose "
-        "readings, meals, and screening results when relevant.\n\n"
-        f"── PATIENT HEALTH DATA ──\n{patient_context}\n──────────────────────"
-        "\n\n"
-        "IMPORTANT: You can also perform actions on behalf of the patient. "
-        "If they ask to set a reminder, log medication, or book an appointment, "
-        f"include a structured action block at the end of your response:\n{_FUNCTION_SCHEMA}"
+    system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
+        patient_context=patient_context or "No patient data available for this session.",
+        function_schema=_FUNCTION_SCHEMA,
     )
 
     messages = [
@@ -729,9 +874,13 @@ def _generate_ai_response_stream(
         "You have access to the patient's recent health data below. Use it to "
         "give personalized, data-driven advice. Reference their actual glucose "
         "readings, meals, and screening results when relevant.\n\n"
-        f"── PATIENT HEALTH DATA ──\n{patient_context}\n──────────────────────"
-        "\n\n"
-        "IMPORTANT: You can also perform actions on behalf of the patient. "
+        f"PATIENT HEALTH DATA\n{patient_context}\n\n"
+        "IMPORTANT FORMAT RULES:\n"
+        "- Respond in plain text only. Never use asterisks, bold, markdown, or any formatting characters.\n"
+        "- Use short paragraphs separated by blank lines.\n"
+        "- Use dashes (-) for bullet lists, not asterisks.\n"
+        "- Respond in the same language the patient writes in (Arabic or English).\n\n"
+        "You can also perform actions on behalf of the patient. "
         "If they ask to set a reminder, log medication, or book an appointment, "
         f"include a structured action block at the end of your response:\n{_FUNCTION_SCHEMA}"
     )
@@ -820,6 +969,9 @@ def send_message(conversation_id: int, data: AiChatRequest, user_id: int, db: Se
     db.refresh(user_msg)
     db.refresh(ai_msg)
 
+    _log_ai_audit(db, user_id, "ai_message_sent", "ai_messages", str(ai_msg.id),
+                  f"conv={conversation_id} patient={patient_id} q_len={len(data.message)} a_len={len(ai_text)}")
+
     # Check for proactive alerts after the exchange
     proactive_alerts = _check_proactive_alerts(patient_id, db)
 
@@ -907,6 +1059,10 @@ def stream_send_message(
         db.add(ai_msg)
         db.commit()
         db.refresh(ai_msg)
+
+        _log_ai_audit(db, user_id, "ai_message_streamed", "ai_messages", str(ai_msg.id),
+                      f"conv={conversation_id} patient={patient_id} a_len={len(full_text)}")
+
         yield {"type": "ai_message", "data": AiMessageResponse.model_validate(ai_msg).model_dump()}
 
     # Check proactive alerts
@@ -934,6 +1090,10 @@ def submit_feedback(message_id: int, data: AiFeedbackRequest, user_id: int, db: 
 
     msg.feedback = data.feedback
     db.commit()
+
+    _log_ai_audit(db, user_id, "ai_feedback_submitted", "ai_messages", str(message_id),
+                  f"feedback={data.feedback}")
+
     return {"status": "ok", "feedback": data.feedback}
 
 
@@ -994,13 +1154,13 @@ def export_conversation(conversation_id: int, export_request: AiExportRequest, u
 
     fmt = export_request.format
     title = convo.title or "Untitled Conversation"
-    created = convo.created_at.strftime("%Y-%m-%d %H:%M")
+    created = convo.created_at.strftime("%Y-%m-%d %I:%M %p")
 
     if fmt == "text":
         lines = [f"Conversation: {title}", f"Date: {created}", "=" * 40, ""]
         for msg in convo.messages:
             sender = "You" if msg.sender == "user" else "DiaCheck AI"
-            lines.append(f"{sender} ({msg.created_at.strftime('%H:%M')}):")
+            lines.append(f"{sender} ({msg.created_at.strftime('%I:%M %p')}):")
             lines.append(msg.message_text)
             lines.append("")
         return "\n".join(lines)
@@ -1009,7 +1169,7 @@ def export_conversation(conversation_id: int, export_request: AiExportRequest, u
     lines = [f"# {title}", f"*Started: {created}*", "", "---", ""]
     for msg in convo.messages:
         sender = "**You**" if msg.sender == "user" else "**DiaCheck AI**"
-        lines.append(f"### {sender} ({msg.created_at.strftime('%H:%M')})")
+        lines.append(f"### {sender} ({msg.created_at.strftime('%I:%M %p')})")
         lines.append("")
         lines.append(msg.message_text)
         lines.append("")
@@ -1090,6 +1250,9 @@ def send_message_with_image(
     db.refresh(user_msg)
     db.refresh(ai_msg)
 
+    _log_ai_audit(db, user_id, "ai_message_with_image", "ai_messages", str(ai_msg.id),
+                  f"conv={conversation_id} patient={patient_id} has_image={bool(image_bytes)} a_len={len(ai_text)}")
+
     return [AiMessageResponse.model_validate(user_msg), AiMessageResponse.model_validate(ai_msg)]
 
 
@@ -1107,6 +1270,10 @@ def get_patient_conversations_for_doctor(doctor_user_id: int, patient_id: int, d
         .limit(10)
     )
     conversations = db.execute(stmt).scalars().all()
+
+    _log_ai_audit(db, doctor_user_id, "doctor_viewed_patient_ai", "ai_conversations", str(patient_id),
+                  f"doctor viewed {len(conversations)} conversations of patient {patient_id}")
+
     result = []
     for c in conversations:
         result.append({
@@ -1164,6 +1331,10 @@ def delete_conversation(conversation_id: int, user_id: int, db: Session) -> dict
     convo = db.execute(stmt).scalar_one_or_none()
     if convo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    _log_ai_audit(db, user_id, "ai_conversation_deleted", "ai_conversations", str(conversation_id),
+                  f"title={convo.title} patient={patient_id}")
+
     db.delete(convo)
     db.commit()
     return {"status": "ok", "detail": "Conversation deleted"}
