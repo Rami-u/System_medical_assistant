@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router";
+import { useNavigate, Link, useLocation } from "react-router";
 import {
   Activity, LayoutDashboard, LogOut, Menu, X,
   Users, AlertTriangle, CheckCircle, ChevronRight,
   Droplets, TrendingUp, TrendingDown, Stethoscope,
   Bell, Clock, FileText, Send, Loader2, Eye,
-  MessageSquare, AlertOctagon, Info, Heart,
+  MessageSquare, AlertOctagon, Info, Heart, Sparkles,
 } from "lucide-react";
 import {
   AreaChart, Area, PieChart, Pie, Cell,
@@ -39,8 +39,9 @@ interface PatientSummary {
 
 // ─── Sidebar nav ──────────────────────────────────────────────────────────────
 const sidebarNav = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard/doctor",          active: true  },
-  { icon: Users,           label: "Patients",  path: "/dashboard/doctor/patients", active: false },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard/doctor"          },
+  { icon: Users,           label: "Patients",  path: "/dashboard/doctor/patients" },
+  { icon: Sparkles,        label: "AI Chat",   path: "/dashboard/doctor/ai-chat"  },
 ];
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -151,6 +152,7 @@ function AlertDetailsModal({ alert, onClose, onReview }: {
 export default function DoctorDashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   
@@ -272,17 +274,20 @@ export default function DoctorDashboard() {
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-          {sidebarNav.map(({ icon: Icon, label, active, path }) => (
-            <button
-              key={label}
-              onClick={() => navigate(path)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${active ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
-              style={{ fontWeight: active ? 600 : 400 }}
-            >
-              <Icon className={`w-4 h-4 ${active ? "text-blue-600" : "text-slate-400"}`} strokeWidth={1.8} />
-              <span className="flex-1 text-left">{label}</span>
-            </button>
-          ))}
+          {sidebarNav.map(({ icon: Icon, label, path }) => {
+            const active = location.pathname === path;
+            return (
+              <button
+                key={label}
+                onClick={() => navigate(path)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${active ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                style={{ fontWeight: active ? 600 : 400 }}
+              >
+                <Icon className={`w-4 h-4 ${active ? "text-blue-600" : "text-slate-400"}`} strokeWidth={1.8} />
+                <span className="flex-1 text-left">{label}</span>
+              </button>
+            );
+          })}
         </nav>
         <div className="px-3 py-4 border-t border-slate-100">
           <button onClick={handleSignOut} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors">

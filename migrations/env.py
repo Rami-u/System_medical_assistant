@@ -2,10 +2,15 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import settings
-from app.core.database import Base
+from app.models.database import Base
 
 # CRITICAL: Import ALL model files so Alembic sees every table
-from app.models import lookup, users, patients, doctors, glucose, ai_models, meals, alerts, clinical, conversations
+from app.models import (  # noqa: F401
+    AiConversation, AiMessage, Alert, AuditLog, ClinicalNote,
+    Doctor, GlucoseLog, HealthPreferences, LkDiabetesType, LkSpecialization,
+    MealDetectedItem, MealLog, Patient, Question, Role, Screening,
+    ScreeningAnswer, ScreeningType, User, doctor_patient_table, user_roles_table,
+)
 
 from logging.config import fileConfig
 

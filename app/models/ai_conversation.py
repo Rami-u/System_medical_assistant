@@ -36,6 +36,7 @@ class AiMessage(Base):
     )
     sender: Mapped[str] = mapped_column(Enum("user", "ai"), nullable=False)
     message_text: Mapped[str] = mapped_column(Text, nullable=False)
+    feedback: Mapped[str | None] = mapped_column(Enum("positive", "negative"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )

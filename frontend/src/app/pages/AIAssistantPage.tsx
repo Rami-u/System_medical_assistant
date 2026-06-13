@@ -4,6 +4,8 @@ import {
   Activity, LayoutDashboard, Droplets, Utensils, Settings,
   LogOut, Menu, X, Send, Square, Copy, Check,
   RotateCcw, Plus, Sparkles, ChevronRight, MessageSquare, Eye,
+  ThumbsUp, ThumbsDown, Search, Download, Image as ImageIcon,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
@@ -14,6 +16,7 @@ interface Message {
   content: string;
   streaming?: boolean;
   timestamp: Date;
+  feedback?: "positive" | "negative" | null;
 }
 
 interface Conversation {
@@ -24,10 +27,13 @@ interface Conversation {
   messages: Message[];
 }
 
-import { chatApi } from "../../api/chatApi";
+import { chatApi, fetchSSEStream } from "../../api/chatApi";
 
-// ─── AI Response Library (Removed mock) ──────────────────────────────────────────────────────
-
+// ─── RTL Detection ────────────────────────────────────────────────────────────
+function isRTL(text: string): boolean {
+  const arabicPattern = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+  return arabicPattern.test(text);
+}
 
 // ─── Suggested prompts ────────────────────────────────────────────────────────
 const SUGGESTED_PROMPTS = [
@@ -79,7 +85,6 @@ function renderMarkdown(text: string): React.JSX.Element {
   while (i < lines.length) {
     const line = lines[i];
 
-    // H2
     if (line.startsWith("## ")) {
       elements.push(
         <h3 key={key++} className="text-slate-900 mt-5 mb-2 first:mt-0" style={{ fontWeight: 700, fontSize: "1rem" }}>
@@ -90,7 +95,6 @@ function renderMarkdown(text: string): React.JSX.Element {
       continue;
     }
 
-    // H3
     if (line.startsWith("### ")) {
       elements.push(
         <h4 key={key++} className="text-slate-800 mt-4 mb-1.5" style={{ fontWeight: 600, fontSize: "0.9rem" }}>
@@ -101,7 +105,6 @@ function renderMarkdown(text: string): React.JSX.Element {
       continue;
     }
 
-    // Table
     if (line.startsWith("|")) {
       const tableLines: string[] = [];
       while (i < lines.length && lines[i].startsWith("|")) {
@@ -138,7 +141,6 @@ function renderMarkdown(text: string): React.JSX.Element {
       continue;
     }
 
-    // Bullet list
     if (line.startsWith("- ") || line.startsWith("* ")) {
       const items: string[] = [];
       while (i < lines.length && (lines[i].startsWith("- ") || lines[i].startsWith("* "))) {
@@ -158,7 +160,6 @@ function renderMarkdown(text: string): React.JSX.Element {
       continue;
     }
 
-    // Numbered list
     if (/^\d+\.\s/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
@@ -180,7 +181,6 @@ function renderMarkdown(text: string): React.JSX.Element {
       continue;
     }
 
-    // Blockquote
     if (line.startsWith("> ")) {
       elements.push(
         <blockquote key={key++} className="border-l-2 border-blue-400 pl-3 py-1 my-3 bg-blue-50/60 rounded-r-lg">
@@ -191,13 +191,11 @@ function renderMarkdown(text: string): React.JSX.Element {
       continue;
     }
 
-    // Empty line
     if (line.trim() === "") {
       i++;
       continue;
     }
 
-    // Normal paragraph
     elements.push(
       <p key={key++} className="text-slate-700 text-sm leading-relaxed">
         {inlineMarkdown(line)}
@@ -226,9 +224,17 @@ function inlineMarkdown(text: string): (string | React.JSX.Element)[] {
 }
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
-function MessageBubble({ msg, onCopy }: { msg: Message; onCopy: (text: string) => void }) {
+function MessageBubble({
+  msg, onCopy, onFeedback,
+}: {
+  msg: Message;
+  onCopy: (text: string) => void;
+  onFeedback: (id: number, feedback: "positive" | "negative") => void;
+}) {
   const isUser = msg.role === "user";
+  const rtlContent = !isUser && isRTL(msg.content);
   const [copied, setCopied] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState<string | null>(msg.feedback || null);
 
   const handleCopy = () => {
     onCopy(msg.content);
@@ -236,14 +242,21 @@ function MessageBubble({ msg, onCopy }: { msg: Message; onCopy: (text: string) =
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleFeedback = (type: "positive" | "negative") => {
+    if (feedbackSent) return;
+    setFeedbackSent(type);
+    onFeedback(msg.id, type);
+  };
+
   if (isUser) {
+    const rtl = isRTL(msg.content);
     return (
       <div className="flex justify-end mb-6">
-        <div className="max-w-[75%]">
-          <div className="bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed">
+        <div className={`max-w-[75%] ${rtl ? "rtl" : ""}`}>
+          <div className={`bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed ${rtl ? "text-right" : ""}`} dir={rtl ? "rtl" : "ltr"}>
             {msg.content}
           </div>
-          <p className="text-right text-xs text-slate-400 mt-1.5 pr-1">
+          <p className={`text-xs text-slate-400 mt-1.5 pr-1 ${rtl ? "text-left" : "text-right"}`}>
             {msg.timestamp.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
           </p>
         </div>
@@ -253,7 +266,6 @@ function MessageBubble({ msg, onCopy }: { msg: Message; onCopy: (text: string) =
 
   return (
     <div className="flex items-start gap-3 mb-6 group">
-      {/* Avatar */}
       <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
         <Sparkles className="w-4 h-4 text-white" strokeWidth={2} />
       </div>
@@ -273,14 +285,13 @@ function MessageBubble({ msg, onCopy }: { msg: Message; onCopy: (text: string) =
           )}
         </div>
 
-        <div className="bg-white rounded-2xl rounded-tl-sm border border-slate-100 shadow-sm px-5 py-4">
+        <div className={`bg-white rounded-2xl rounded-tl-sm border border-slate-100 shadow-sm px-5 py-4 ${rtlContent ? "rtl" : ""}`}>
           {msg.streaming
-            ? <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{msg.content}<span className="inline-block w-0.5 h-4 bg-blue-500 ml-0.5 animate-pulse align-text-bottom" /></p>
-            : renderMarkdown(msg.content)
+            ? <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap" dir={rtlContent ? "rtl" : "ltr"}>{msg.content}<span className="inline-block w-0.5 h-4 bg-blue-500 ml-0.5 animate-pulse align-text-bottom" /></p>
+            : <div dir={rtlContent ? "rtl" : "ltr"}>{renderMarkdown(msg.content)}</div>
           }
         </div>
 
-        {/* Actions */}
         {!msg.streaming && (
           <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
@@ -289,6 +300,29 @@ function MessageBubble({ msg, onCopy }: { msg: Message; onCopy: (text: string) =
             >
               {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
               {copied ? "Copied" : "Copy"}
+            </button>
+
+            <span className="text-slate-200">|</span>
+
+            <button
+              onClick={() => handleFeedback("positive")}
+              className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${
+                feedbackSent === "positive"
+                  ? "text-emerald-600 bg-emerald-50"
+                  : "text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+              }`}
+            >
+              <ThumbsUp className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => handleFeedback("negative")}
+              className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${
+                feedbackSent === "negative"
+                  ? "text-red-600 bg-red-50"
+                  : "text-slate-400 hover:text-red-600 hover:bg-red-50"
+              }`}
+            >
+              <ThumbsDown className="w-3 h-3" />
             </button>
           </div>
         )}
@@ -318,6 +352,70 @@ function ThinkingIndicator() {
   );
 }
 
+// ─── Alert Banner ─────────────────────────────────────────────────────────────
+function AlertBanner({ alerts, onDismiss }: { alerts: any[]; onDismiss: () => void }) {
+  if (alerts.length === 0) return null;
+  return (
+    <div className="mx-5 mt-3 space-y-2">
+      {alerts.map((a, i) => (
+        <div key={i} className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-amber-800 text-sm">{a.message}</p>
+          </div>
+          <button onClick={onDismiss} className="text-amber-400 hover:text-amber-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Search Results Panel ─────────────────────────────────────────────────────
+function SearchPanel({
+  results,
+  onSelect,
+  onClose,
+}: {
+  results: any[];
+  onSelect: (convId: number) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute top-full left-0 right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-xl mt-1 max-h-80 overflow-y-auto">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <span className="text-xs text-slate-500" style={{ fontWeight: 600 }}>
+          {results.length} result{results.length !== 1 ? "s" : ""}
+        </span>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      {results.map((r) => (
+        <button
+          key={r.message_id}
+          onClick={() => onSelect(r.conversation_id)}
+          className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0"
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <MessageSquare className="w-3 h-3 text-slate-400" />
+            <span className="text-xs text-slate-500">{r.conversation_title || "Conversation"}</span>
+            <span className="text-xs text-slate-300">·</span>
+            <span className={`text-xs ${r.sender === "user" ? "text-blue-500" : "text-emerald-500"}`}>
+              {r.sender === "user" ? "You" : "AI"}
+            </span>
+          </div>
+          <p className="text-sm text-slate-700 line-clamp-2">{r.snippet}</p>
+        </button>
+      ))}
+      {results.length === 0 && (
+        <p className="text-sm text-slate-400 text-center py-6">No results found</p>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function AIAssistantPage() {
   const { user, signOut } = useAuth();
@@ -332,6 +430,13 @@ export default function AIAssistantPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const streamRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [showSearch, setShowSearch] = useState(false);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleSignOut = () => { signOut(); navigate("/"); };
 
@@ -366,6 +471,7 @@ export default function AIAssistantPage() {
     setMessages([]);
     setThinking(true);
     setSidebarOpen(false);
+    setShowSearch(false);
     try {
       const data = await chatApi.getConversationDetail(id);
       const mapped: Message[] = data.messages.map((m: any) => ({
@@ -373,6 +479,7 @@ export default function AIAssistantPage() {
         role: m.sender === "ai" ? "assistant" : "user",
         content: m.message_text,
         timestamp: new Date(m.created_at),
+        feedback: m.feedback || null,
       }));
       setMessages(mapped);
     } catch (err) {
@@ -387,7 +494,6 @@ export default function AIAssistantPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, thinking]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (el) {
@@ -396,41 +502,15 @@ export default function AIAssistantPage() {
     }
   }, [input]);
 
-  const streamResponse = useCallback((fullText: string, msgId: number) => {
-    streamRef.current = false;
-    const words = fullText.split(" ");
-    let idx = 0;
-
-    const tick = () => {
-      if (streamRef.current) {
-        // aborted — set full text immediately
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: fullText, streaming: false } : m));
-        setStreaming(false);
-        return;
-      }
-      idx += 2; // reveal 2 words at a time for speed
-      if (idx > words.length) idx = words.length;
-      setMessages(prev =>
-        prev.map(m => m.id === msgId
-          ? { ...m, content: words.slice(0, idx).join(" "), streaming: idx < words.length }
-          : m
-        )
-      );
-      if (idx < words.length) {
-        setTimeout(tick, 18);
-      } else {
-        setStreaming(false);
-      }
-    };
-    setTimeout(tick, 18);
-  }, []);
-
-  const sendMessage = useCallback(async (text: string) => {
+  // ── SSE Streaming send ──
+  const sendMessageStreaming = useCallback(async (text: string) => {
     if (!text.trim() || thinking || streaming) return;
+
     const userMsg: Message = { id: Date.now(), role: "user", content: text.trim(), timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
     setThinking(true);
+    setAlerts([]);
 
     try {
       let convId = activeConvId;
@@ -441,9 +521,109 @@ export default function AIAssistantPage() {
         loadConversations();
       }
 
-      const res = await chatApi.sendMessage(convId!, text);
-      const aiResponse = res[res.length - 1]; // The latest message from AI
+      // Create a placeholder AI message with streaming=true
+      const aiMsgId = Date.now() + 1;
+      const assistantMsg: Message = {
+        id: aiMsgId,
+        role: "assistant",
+        content: "",
+        streaming: true,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      setThinking(false);
+      setStreaming(true);
 
+      // Start SSE stream
+      const controller = await fetchSSEStream(
+        convId!,
+        text,
+        // onToken
+        (token) => {
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === aiMsgId
+                ? { ...m, content: m.content + token }
+                : m
+            )
+          );
+        },
+        // onDone
+        () => {
+          setStreaming(false);
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === aiMsgId ? { ...m, streaming: false } : m
+            )
+          );
+          loadConversations();
+        },
+        // onEvent
+        (event: any) => {
+          if (event.type === 'alerts' && event.data) {
+            setAlerts(event.data);
+          }
+          if (event.type === 'ai_message' && event.data) {
+            // Update the message ID to the real one from the server
+            setMessages(prev =>
+              prev.map(m =>
+                m.id === aiMsgId
+                  ? { ...m, id: event.data.id, feedback: event.data.feedback || null }
+                  : m
+              )
+            );
+          }
+        },
+        // onError
+        (error) => {
+          console.error('Stream error:', error);
+          setStreaming(false);
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === aiMsgId
+                ? { ...m, content: m.content || 'Sorry, I encountered an error. Please try again.', streaming: false }
+                : m
+            )
+          );
+        },
+      );
+      abortControllerRef.current = controller;
+    } catch (err) {
+      console.error(err);
+      setThinking(false);
+      setStreaming(false);
+    }
+  }, [thinking, streaming, activeConvId, loadConversations]);
+
+  // ── Non-streaming send (fallback) ──
+  const sendMessageLegacy = useCallback(async (text: string) => {
+    if (!text.trim() || thinking || streaming) return;
+
+    let fileToSend = selectedFile;
+    const userMsg: Message = { id: Date.now(), role: "user", content: text.trim(), timestamp: new Date() };
+    setMessages(prev => [...prev, userMsg]);
+    setInput("");
+    setThinking(true);
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    try {
+      let convId = activeConvId;
+      if (!convId) {
+        const newConv = await chatApi.startConversation(text.substring(0, 40));
+        convId = newConv.id;
+        setActiveConvId(convId);
+        loadConversations();
+      }
+
+      let res;
+      if (fileToSend) {
+        res = await chatApi.sendMessageWithImage(convId!, text, fileToSend);
+      } else {
+        res = await chatApi.sendMessage(convId!, text);
+      }
+
+      const aiResponse = res[res.length - 1];
       setThinking(false);
 
       const assistantMsg: Message = {
@@ -452,41 +632,125 @@ export default function AIAssistantPage() {
         content: "",
         streaming: true,
         timestamp: new Date(aiResponse.created_at),
+        feedback: aiResponse.feedback || null,
       };
       setMessages(prev => [...prev, assistantMsg]);
       setStreaming(true);
-      streamRef.current = false;
-      streamResponse(aiResponse.message_text, assistantMsg.id);
+
+      // Client-side word-by-word reveal for non-streaming responses
+      const words = aiResponse.message_text.split(" ");
+      let idx = 0;
+      const tick = () => {
+        idx += 2;
+        if (idx > words.length) idx = words.length;
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMsg.id
+              ? { ...m, content: words.slice(0, idx).join(" "), streaming: idx < words.length }
+              : m
+          )
+        );
+        if (idx < words.length) {
+          setTimeout(tick, 18);
+        } else {
+          setStreaming(false);
+        }
+      };
+      setTimeout(tick, 18);
     } catch (err) {
       console.error(err);
       setThinking(false);
-      alert("Failed to send message.");
+      setStreaming(false);
     }
-  }, [thinking, streaming, messages, streamResponse, activeConvId, loadConversations]);
+  }, [thinking, streaming, activeConvId, loadConversations, selectedFile]);
+
+  // Decide which send to use
+  const sendMessage = useCallback((text: string) => {
+    if (!text.trim() || thinking || streaming) return;
+    sendMessageStreaming(text);
+  }, [sendMessageStreaming, thinking, streaming]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendMessage(input);
+      if (selectedFile) {
+        sendMessageLegacy(input);
+      } else {
+        sendMessage(input);
+      }
     }
   };
 
   const handleStop = () => {
     streamRef.current = true;
+    abortControllerRef.current?.abort();
+    setStreaming(false);
+    setMessages(prev =>
+      prev.map(m =>
+        m.streaming ? { ...m, streaming: false } : m
+      )
+    );
+    setThinking(false);
   };
 
   const handleNewChat = () => {
     streamRef.current = true;
+    abortControllerRef.current?.abort();
     setMessages([]);
     setInput("");
     setThinking(false);
     setStreaming(false);
     setActiveConvId(null);
+    setSelectedFile(null);
+    setAlerts([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setTimeout(() => textareaRef.current?.focus(), 100);
   };
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  const handleFeedback = async (messageId: number, feedback: "positive" | "negative") => {
+    try {
+      await chatApi.submitFeedback(messageId, feedback);
+    } catch (err) {
+      console.error("Failed to submit feedback", err);
+    }
+  };
+
+  // ── Search ──
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    try {
+      const results = await chatApi.searchConversations(searchQuery);
+      setSearchResults(results);
+      setShowSearch(true);
+    } catch (err) {
+      console.error("Search failed", err);
+    }
+  };
+
+  const handleSearchSelect = (convId: number) => {
+    setShowSearch(false);
+    setSearchQuery("");
+    selectConversation(convId);
+  };
+
+  // ── Export ──
+  const handleExport = async () => {
+    if (!activeConvId) return;
+    try {
+      const blob = await chatApi.exportConversation(activeConvId, 'markdown');
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `conversation_${activeConvId}.md`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export failed", err);
+    }
   };
 
   const isEmpty = messages.length === 0;
@@ -525,6 +789,33 @@ export default function AIAssistantPage() {
           </div>
         </div>
 
+        {/* ── Search Bar ── */}
+        <div className="px-3 py-3 border-b border-slate-100 relative">
+          <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2">
+            <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (!e.target.value) setShowSearch(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSearch();
+              }}
+              className="flex-1 text-xs text-slate-700 bg-transparent focus:outline-none placeholder-slate-400"
+            />
+          </div>
+          {showSearch && (
+            <SearchPanel
+              results={searchResults}
+              onSelect={handleSearchSelect}
+              onClose={() => setShowSearch(false)}
+            />
+          )}
+        </div>
+
         <nav className="px-3 py-3 space-y-0.5">
           {sidebarNav.map(({ icon: Icon, label, path, active }) => (
             <button
@@ -544,19 +835,32 @@ export default function AIAssistantPage() {
           <p className="text-slate-400 text-xs px-3 py-2" style={{ fontWeight: 600 }}>RECENT CHATS</p>
           <div className="space-y-0.5">
             {conversationsList.map(conv => (
-              <button
+              <div
                 key={conv.id}
+                className={`group flex items-center gap-1 px-3 py-2.5 rounded-xl transition-colors cursor-pointer ${activeConvId === conv.id ? "bg-blue-50" : "hover:bg-slate-50"}`}
                 onClick={() => selectConversation(conv.id)}
-                className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors group ${activeConvId === conv.id ? "bg-blue-50" : "hover:bg-slate-50"}`}
               >
-                <div className="flex items-start gap-2">
-                  <MessageSquare className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-slate-700 text-xs truncate" style={{ fontWeight: 500 }}>{conv.title || "New Conversation"}</p>
-                    <p className="text-slate-400 text-xs truncate">{new Date(conv.created_at).toLocaleDateString()}</p>
-                  </div>
+                <MessageSquare className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-slate-700 text-xs truncate" style={{ fontWeight: 500 }}>{conv.title || "New Conversation"}</p>
+                  <p className="text-slate-400 text-xs truncate">{new Date(conv.created_at).toLocaleDateString()}</p>
                 </div>
-              </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm(`Delete "${conv.title || "this conversation"}"?`)) {
+                      chatApi.deleteConversation(conv.id).then(() => {
+                        if (activeConvId === conv.id) handleNewChat();
+                        loadConversations();
+                      }).catch(() => alert("Failed to delete"));
+                    }
+                  }}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-red-100 text-slate-400 hover:text-red-500 transition-all flex-shrink-0"
+                  title="Delete conversation"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             ))}
             {conversationsList.length === 0 && (
               <p className="text-slate-400 text-xs px-3 py-2">No history yet.</p>
@@ -594,20 +898,36 @@ export default function AIAssistantPage() {
               </div>
             </div>
           </div>
-          <button
-            onClick={handleNewChat}
-            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 hover:border-slate-300 px-3 py-1.5 rounded-xl transition-colors bg-white hover:bg-slate-50"
-            style={{ fontWeight: 500 }}
-          >
-            <Plus className="w-4 h-4" />
-            New chat
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Export button */}
+            {activeConvId && messages.length > 0 && (
+              <button
+                onClick={handleExport}
+                className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 border border-slate-200 hover:border-slate-300 px-3 py-1.5 rounded-xl transition-colors bg-white hover:bg-slate-50 mr-1"
+                style={{ fontWeight: 500 }}
+                title="Export conversation"
+              >
+                <Download className="w-4 h-4" />
+                Export
+              </button>
+            )}
+            <button
+              onClick={handleNewChat}
+              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 hover:border-slate-300 px-3 py-1.5 rounded-xl transition-colors bg-white hover:bg-slate-50"
+              style={{ fontWeight: 500 }}
+            >
+              <Plus className="w-4 h-4" />
+              New chat
+            </button>
+          </div>
         </header>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto">
+          {/* Alert Banner */}
+          <AlertBanner alerts={alerts} onDismiss={() => setAlerts([])} />
+
           {isEmpty ? (
-            /* ── Empty State ── */
             <div className="h-full flex flex-col items-center justify-center px-6 py-12">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center mb-6 shadow-lg shadow-blue-200">
                 <Sparkles className="w-8 h-8 text-white" />
@@ -639,10 +959,9 @@ export default function AIAssistantPage() {
               </div>
             </div>
           ) : (
-            /* ── Message Thread ── */
             <div className="max-w-3xl mx-auto px-5 py-8">
               {messages.map(msg => (
-                <MessageBubble key={msg.id} msg={msg} onCopy={handleCopy} />
+                <MessageBubble key={msg.id} msg={msg} onCopy={handleCopy} onFeedback={handleFeedback} />
               ))}
               {thinking && <ThinkingIndicator />}
               <div ref={bottomRef} />
@@ -654,18 +973,58 @@ export default function AIAssistantPage() {
         <div className="bg-white border-t border-slate-100 px-4 py-4 flex-shrink-0">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-end gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-50 transition-all shadow-sm">
+              {/* Image upload button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className={`flex-shrink-0 p-1.5 rounded-lg transition-colors ${
+                  selectedFile
+                    ? "bg-blue-100 text-blue-600"
+                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                }`}
+                title="Attach image"
+                disabled={streaming || thinking}
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 10 * 1024 * 1024) {
+                      alert("Image too large. Max 10MB.");
+                      return;
+                    }
+                    setSelectedFile(file);
+                  }
+                }}
+              />
+
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask about your glucose levels, diet, medications, symptoms…"
+                placeholder={selectedFile ? "Ask about this image..." : "Ask about your glucose levels, diet, medications, symptoms…"}
                 rows={1}
                 disabled={thinking}
-                className="flex-1 text-sm text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none resize-none leading-relaxed"
+                dir={isRTL(input) ? "rtl" : "ltr"}
+                className={`flex-1 text-sm text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none resize-none leading-relaxed ${isRTL(input) ? "text-right" : ""}`}
                 style={{ minHeight: "24px", maxHeight: "160px" }}
               />
               <div className="flex items-center gap-2 flex-shrink-0 pb-0.5">
+                {selectedFile && (
+                  <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-lg flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3" />
+                    {selectedFile.name.length > 15 ? selectedFile.name.slice(0, 12) + "…" : selectedFile.name}
+                    <button onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="text-blue-400 hover:text-blue-600 ml-0.5">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
                 {streaming ? (
                   <button
                     onClick={handleStop}
@@ -676,10 +1035,16 @@ export default function AIAssistantPage() {
                   </button>
                 ) : (
                   <button
-                    onClick={() => sendMessage(input)}
-                    disabled={!input.trim() || thinking}
+                    onClick={() => {
+                      if (selectedFile) {
+                        sendMessageLegacy(input);
+                      } else {
+                        sendMessage(input);
+                      }
+                    }}
+                    disabled={!input.trim() && !selectedFile || thinking}
                     className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all ${
-                      input.trim() && !thinking
+                      (input.trim() || selectedFile) && !thinking
                         ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-200"
                         : "bg-slate-100 text-slate-400 cursor-not-allowed"
                     }`}

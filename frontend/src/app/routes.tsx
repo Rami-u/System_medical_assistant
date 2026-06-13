@@ -8,6 +8,7 @@ import PatientDetailsPage from "./pages/PatientDetailsPage";
 import GlucoseLogsPage from "./pages/GlucoseLogsPage";
 import MealLogsPage from "./pages/MealLogsPage";
 import AIAssistantPage from "./pages/AIAssistantPage";
+import DoctorAIAssistantPage from "./pages/DoctorAIAssistantPage";
 import PatientSettingsPage from "./pages/PatientSettingsPage";
 import RetinopathyPage from "./pages/RetinopathyPage";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: DoctorDashboard },
       { path: "patients", Component: PatientDetailsPage },
+      { path: "ai-chat", Component: DoctorAIAssistantPage },
     ]
   },
   { path: "*", Component: () => <Navigate to="/" replace /> },

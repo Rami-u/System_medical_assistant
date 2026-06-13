@@ -21,7 +21,14 @@ class AiMessageResponse(BaseModel):
     id: int
     sender: str
     message_text: str
+    feedback: Optional[str] = None
     created_at: datetime
+
+
+class AiFeedbackRequest(BaseModel):
+    """Body for submitting feedback on an AI message."""
+
+    feedback: str = Field(..., pattern=r"^(positive|negative)$")
 
 
 # ── CONVERSATIONS ───────────────────────────────────────────
@@ -52,3 +59,36 @@ class AiConversationListItem(BaseModel):
     title: Optional[str] = None
     created_at: datetime
     message_count: int = 0
+
+
+# ── SEARCH ──────────────────────────────────────────────────
+class AiSearchRequest(BaseModel):
+    """Body for searching messages within conversations."""
+
+    query: str = Field(..., min_length=1, max_length=200)
+
+
+class AiSearchResult(BaseModel):
+    """A single search result from message search."""
+
+    conversation_id: int
+    conversation_title: Optional[str] = None
+    message_id: int
+    sender: str
+    snippet: str
+    created_at: datetime
+
+
+# ── EXPORT ──────────────────────────────────────────────────
+class AiExportRequest(BaseModel):
+    """Body for exporting a conversation."""
+
+    format: str = Field(default="markdown", pattern=r"^(markdown|text)$")
+
+
+# ── FUNCTION CALLING ────────────────────────────────────────
+class AiFunctionCall(BaseModel):
+    """A structured action the AI can request (e.g., create reminder, book appointment)."""
+
+    function: str = Field(..., pattern=r"^(create_reminder|log_medication|book_appointment)$")
+    parameters: dict = Field(default_factory=dict)
