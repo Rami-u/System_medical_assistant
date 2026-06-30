@@ -469,7 +469,7 @@ export default function AuthPage() {
           </Link>
 
           {/* Middle content */}
-          <div className="flex-1 flex flex-col justify-center max-w-sm">
+          <div className="flex-1 flex flex-col justify-center max-w-md">
             <div className="inline-flex items-center gap-2 bg-white/10 border border-white/15 backdrop-blur-sm text-blue-200 px-3 py-1.5 rounded-full text-xs mb-6">
               AI-Powered Health Screening
             </div>
@@ -542,7 +542,7 @@ export default function AuthPage() {
 
         {/* Form */}
         <div className="flex-1 flex items-start justify-center px-6 py-10 lg:px-16">
-          <div className="w-full max-w-md">
+          <div className="w-full max-w-lg">
             {tab === "signin" ? (
               <SignInForm onSwitch={() => switchTab("register")} />
             ) : (

@@ -789,33 +789,6 @@ export default function AIAssistantPage() {
           </div>
         </div>
 
-        {/* ── Search Bar ── */}
-        <div className="px-3 py-3 border-b border-slate-100 relative">
-          <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2">
-            <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
-            <input
-              type="text"
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                if (!e.target.value) setShowSearch(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSearch();
-              }}
-              className="flex-1 text-xs text-slate-700 bg-transparent focus:outline-none placeholder-slate-400"
-            />
-          </div>
-          {showSearch && (
-            <SearchPanel
-              results={searchResults}
-              onSelect={handleSearchSelect}
-              onClose={() => setShowSearch(false)}
-            />
-          )}
-        </div>
-
         <nav className="px-3 py-3 space-y-0.5">
           {sidebarNav.map(({ icon: Icon, label, path, active }) => (
             <button
@@ -832,6 +805,32 @@ export default function AIAssistantPage() {
 
         {/* Past Conversations */}
         <div className="flex-1 overflow-y-auto px-3 py-2 border-t border-slate-50">
+          {/* ── Search Bar ── */}
+          <div className="px-0 py-2 relative">
+            <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2">
+              <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              <input
+                type="text"
+                placeholder="Search conversations..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (!e.target.value) setShowSearch(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSearch();
+                }}
+                className="flex-1 text-xs text-slate-700 bg-transparent focus:outline-none placeholder-slate-400"
+              />
+            </div>
+            {showSearch && (
+              <SearchPanel
+                results={searchResults}
+                onSelect={handleSearchSelect}
+                onClose={() => setShowSearch(false)}
+              />
+            )}
+          </div>
           <p className="text-slate-400 text-xs px-3 py-2" style={{ fontWeight: 600 }}>RECENT CHATS</p>
           <div className="space-y-0.5">
             {conversationsList.map(conv => (
@@ -939,7 +938,7 @@ export default function AIAssistantPage() {
                 I'm your personalized AI health assistant. I have access to your health profile and can provide
                 evidence-based guidance on diabetes management, nutrition, medications, and more.
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full max-w-3xl">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full max-w-4xl">
                 {SUGGESTED_PROMPTS.map((p) => (
                   <button
                     key={p.title}
@@ -959,7 +958,7 @@ export default function AIAssistantPage() {
               </div>
             </div>
           ) : (
-            <div className="max-w-3xl mx-auto px-5 py-8">
+            <div className="max-w-4xl mx-auto px-5 py-8">
               {messages.map(msg => (
                 <MessageBubble key={msg.id} msg={msg} onCopy={handleCopy} onFeedback={handleFeedback} />
               ))}
@@ -971,7 +970,7 @@ export default function AIAssistantPage() {
 
         {/* Input Area */}
         <div className="bg-white border-t border-slate-100 px-4 py-4 flex-shrink-0">
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-4xl mx-auto">
             <div className="flex items-end gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-50 transition-all shadow-sm">
               {/* Image upload button */}
               <button

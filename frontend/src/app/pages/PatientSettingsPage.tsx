@@ -358,7 +358,7 @@ export default function PatientSettingsPage() {
 
         {/* Scrollable body */}
         <main className="flex-1 overflow-y-auto px-5 py-6">
-          <div className="max-w-4xl mx-auto space-y-6">
+          <div className="max-w-6xl mx-auto space-y-6">
 
             {/* Header */}
             <div className="mb-2">

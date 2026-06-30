@@ -152,7 +152,7 @@ export default function RetinopathyPage() {
         </header>
 
         <main className="flex-1 overflow-y-auto px-5 py-6">
-          <div className="max-w-3xl mx-auto space-y-5">
+          <div className="max-w-5xl mx-auto space-y-5">
 
             {/* Disclaimer Banner */}
             <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">

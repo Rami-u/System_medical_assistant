@@ -397,7 +397,7 @@ export default function AISummaryPage() {
 
         {/* ── Scrollable body ── */}
         <main className="flex-1 overflow-y-auto px-5 py-6">
-          <div className="max-w-5xl mx-auto space-y-5">
+          <div className="max-w-[1600px] mx-auto space-y-5">
 
             {/* ── Hero: Condition badge + summary ── */}
             <div className={`rounded-3xl bg-gradient-to-br ${sc.heroGrad} p-7 text-white shadow-xl relative overflow-hidden`}>

@@ -30,7 +30,7 @@ interface AdvancedFormData {
   bloodGlucose: string;
 }
 
-type PageState = "selection" | "simple" | "advanced" | "result-positive" | "result-negative";
+type PageState = "selection" | "simple" | "advanced" | "result-positive" | "result-negative" | "result-pre-diabetic";
 type TestType = "simple" | "advanced";
 
 type StepColor =
@@ -205,6 +205,12 @@ export default function DiabetesTestPage() {
   });
   const [riskResult, setRiskResult] = useState<{
     diagnosis: string; riskLevel: string;
+    riskCategory?: string;
+    riskProbability?: number;
+    modelPrediction?: string;
+    clinicalOverrideApplied?: boolean;
+    confidence?: string;
+    explanation?: string;
   } | null>(null);
   const [loadingResult, setLoadingResult] = useState(false);
 
@@ -279,8 +285,6 @@ export default function DiabetesTestPage() {
 
         console.log("[Screening] API response:", res);
 
-        const rawScore = parseFloat(String(res.risk_score ?? 0));
-        const score = isNaN(rawScore) ? 0 : Math.round(rawScore);
         const diagnosis = res.diagnosis || (res.risk_level === "high" ? "Diabetic" : "Not Diabetic");
         const riskLevelCap = (res.risk_level || "low").charAt(0).toUpperCase() + (res.risk_level || "low").slice(1);
 
@@ -288,10 +292,20 @@ export default function DiabetesTestPage() {
 
         setRiskResult({
           diagnosis,
-          riskLevel: riskLevelCap
+          riskLevel: riskLevelCap,
+          riskCategory: res.risk_category,
+          riskProbability: res.risk_probability,
+          modelPrediction: res.model_prediction,
+          clinicalOverrideApplied: res.clinical_override_applied,
+          confidence: res.confidence,
+          explanation: res.explanation,
         });
 
-        setPageState(diagnosis === "Diabetic" ? "result-positive" : "result-negative");
+        if (activeTest === "advanced" && res.risk_category === "Pre-diabetic") {
+          setPageState("result-pre-diabetic");
+        } else {
+          setPageState(diagnosis === "Diabetic" ? "result-positive" : "result-negative");
+        }
       } catch (err: any) {
         console.error("[Screening] Error:", err?.response?.status, err?.response?.data, err);
         const status = err?.response?.status;
@@ -368,7 +382,7 @@ export default function DiabetesTestPage() {
         {/* SELECTION SCREEN                                                  */}
         {/* ══════════════════════════════════════════════════════════════════ */}
         {pageState === "selection" && (
-          <div className="w-full max-w-3xl">
+          <div className="w-full max-w-4xl">
             {/* Header */}
             <div className="text-center mb-10">
               <div className="inline-flex items-center gap-2 bg-blue-100 text-blue-700 px-4 py-1.5 rounded-full text-xs font-semibold mb-4">
@@ -538,7 +552,7 @@ export default function DiabetesTestPage() {
         {/* TEST FORM (shared for simple & advanced)                         */}
         {/* ══════════════════════════════════════════════════════════════════ */}
         {(pageState === "simple" || pageState === "advanced") && (
-          <div className="w-full max-w-2xl">
+          <div className="w-full max-w-3xl">
 
             {/* Header */}
             <div className="text-center mb-8">
@@ -767,7 +781,7 @@ export default function DiabetesTestPage() {
         {/* RESULT: AT RISK                                                   */}
         {/* ══════════════════════════════════════════════════════════════════ */}
         {pageState === "result-positive" && (
-          <div className="w-full max-w-lg">
+          <div className="w-full max-w-xl">
             <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden">
               <div className="h-2 bg-gradient-to-r from-amber-400 via-orange-400 to-red-400" />
 
@@ -874,10 +888,151 @@ export default function DiabetesTestPage() {
         )}
 
         {/* ══════════════════════════════════════════════════════════════════ */}
+        {/* RESULT: PRE-DIABETIC (Advanced Test Only)                        */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        {pageState === "result-pre-diabetic" && (
+          <div className="w-full max-w-xl">
+            <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden">
+              <div className="h-2 bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500" />
+
+              <div className="px-8 py-8">
+                {/* Icon */}
+                <div className="flex justify-center mb-6">
+                  <div className="relative">
+                    <div className="w-24 h-24 bg-amber-50 rounded-full flex items-center justify-center">
+                      <AlertTriangle className="w-12 h-12 text-amber-500" strokeWidth={1.5} />
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-amber-400 rounded-full flex items-center justify-center shadow-md">
+                      <span className="text-white text-xs font-bold">!</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Text */}
+                <div className="text-center mb-6">
+                  <h2 className="text-slate-900 mb-2" style={{ fontWeight: 800, fontSize: "1.5rem" }}>
+                    Screening Result
+                  </h2>
+                  {riskResult && (
+                    <div className="flex flex-col items-center gap-3 mb-4">
+                      <div className="w-20 h-20 bg-amber-50 border-2 border-amber-200 rounded-full flex items-center justify-center">
+                        <Activity className="w-10 h-10 text-amber-500" strokeWidth={1.5} />
+                      </div>
+                      <span className="px-5 py-2 rounded-full text-sm font-bold bg-amber-100 text-amber-700">
+                        {riskResult.diagnosis}
+                      </span>
+                      {activeTest === "advanced" && (
+                        <span className="inline-flex items-center gap-1 bg-violet-100 text-violet-700 px-2.5 py-1 rounded-full text-xs font-semibold">
+                          <Brain className="w-3 h-3" />
+                          Advanced Analysis
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-amber-600 font-semibold mb-3 text-base">
+                    Your screening indicates pre-diabetic risk factors.
+                  </p>
+                  <p className="text-slate-500 text-sm leading-relaxed">
+                    Your results fall into the pre-diabetic range. This is a critical early
+                    warning — lifestyle changes now can significantly reduce your risk of
+                    developing type 2 diabetes. This is <strong>not a clinical diagnosis</strong> —
+                    please consult your healthcare provider.
+                  </p>
+                </div>
+
+                {/* ML Model Result card */}
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-5">
+                  <p className="text-amber-400 text-xs font-semibold uppercase tracking-wide mb-1">ML Model Result</p>
+                  <p className="text-amber-700 text-2xl" style={{ fontWeight: 800 }}>
+                    {riskResult?.diagnosis || "Pre-diabetic"}
+                  </p>
+                  {riskResult?.riskProbability !== undefined && (
+                    <p className="text-amber-500 text-xs mt-1">
+                      Risk probability: {(riskResult.riskProbability * 100).toFixed(0)}%
+                    </p>
+                  )}
+                  {riskResult?.modelPrediction && (
+                    <p className="text-amber-400 text-xs mt-0.5">
+                      Raw model output: {riskResult.modelPrediction}
+                    </p>
+                  )}
+                  {riskResult?.confidence && (
+                    <p className="text-amber-400 text-xs mt-0.5">
+                      {riskResult.confidence}
+                    </p>
+                  )}
+                </div>
+
+                {/* Clinical override explanation */}
+                {riskResult?.clinicalOverrideApplied && riskResult?.explanation && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 mb-5">
+                    <p className="text-blue-600 text-xs font-semibold uppercase tracking-wide mb-1">Clinical Note</p>
+                    <p className="text-blue-700 text-sm leading-relaxed">
+                      {riskResult.explanation}
+                    </p>
+                    <p className="text-blue-400 text-xs mt-2">
+                      Based on your lab values (HbA1c and/or blood glucose), your result was adjusted
+                      to the pre-diabetic category per ADA clinical criteria.
+                    </p>
+                  </div>
+                )}
+
+                {/* Pre-diabetic specific tips */}
+                <div className="bg-amber-50 rounded-2xl p-4 mb-6">
+                  <p className="text-amber-700 text-xs font-semibold uppercase tracking-wide mb-3">Tips to Stay Healthy</p>
+                  <ul className="space-y-2 text-amber-800 text-sm">
+                    {[
+                      "Schedule a follow-up HbA1c and fasting glucose test with your doctor",
+                      "Adopt a structured lifestyle modification program (diet + exercise)",
+                      "Aim for 150+ minutes of moderate physical activity per week",
+                      "Reduce intake of refined carbohydrates and added sugars",
+                      "Monitor your blood glucose regularly if advised by your physician",
+                      "Consider consulting a dietitian or diabetes educator",
+                    ].map((tip) => (
+                      <li key={tip} className="flex items-start gap-2">
+                        <CheckCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                        {tip}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => navigate("/auth")}
+                    className="w-full py-4 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-white rounded-2xl font-semibold text-sm transition-all shadow-lg shadow-amber-200 hover:shadow-amber-300 hover:-translate-y-0.5 flex items-center justify-center gap-2"
+                  >
+                    Create a Free Account & Start Monitoring
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => navigate("/auth")}
+                    className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    Sign In to Existing Account
+                  </button>
+                  <button
+                    onClick={handleRetake}
+                    className="w-full py-3 text-slate-400 hover:text-slate-600 text-sm transition-colors"
+                  >
+                    ↺ Try a Different Test
+                  </button>
+                </div>
+
+                <p className="text-center text-xs text-slate-400 mt-4">
+                  ⚕️ This result is not a clinical diagnosis. Please consult a physician.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════ */}
         {/* RESULT: LOW RISK                                                  */}
         {/* ══════════════════════════════════════════════════════════════════ */}
         {pageState === "result-negative" && (
-          <div className="w-full max-w-lg">
+          <div className="w-full max-w-xl">
             <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden">
               <div className="h-2 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400" />
 

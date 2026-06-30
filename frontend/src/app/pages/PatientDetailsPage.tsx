@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
 import {
-  Activity, LayoutDashboard, Users, LogOut, Menu, X,
+  Activity, LayoutDashboard, Users, LogOut, Menu, X, Sparkles,
   Search, Stethoscope, Bell, ChevronRight,
   Droplets, Calendar, AlertTriangle, CheckCircle,
   TrendingUp, TrendingDown, Phone, Mail,
@@ -311,6 +311,7 @@ useEffect(() => {
           {[
             { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard/doctor", active: false },
             { icon: Users, label: "Patients", path: "/dashboard/doctor/patients", active: true },
+            { icon: Sparkles, label: "AI Chat", path: "/dashboard/doctor/ai-chat", active: false },
           ].map(({ icon: Icon, label, active, path }) => (
             <button
               key={label}

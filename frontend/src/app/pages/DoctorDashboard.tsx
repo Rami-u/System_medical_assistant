@@ -319,7 +319,7 @@ export default function DoctorDashboard() {
         </header>
 
         <main className="flex-1 overflow-y-auto px-5 py-6">
-          <div className="max-w-6xl mx-auto space-y-6">
+          <div className="max-w-[1600px] mx-auto space-y-6">
 
             {/* ── Greeting ───────────────────────────────────────────────────── */}
             <div className="flex items-start justify-between gap-4 flex-wrap">

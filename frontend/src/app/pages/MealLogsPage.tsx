@@ -617,7 +617,7 @@ export default function MealLogsPage() {
 
         {/* Body */}
         <main className="flex-1 overflow-y-auto px-5 py-6">
-          <div className="max-w-5xl mx-auto space-y-5">
+          <div className="max-w-[1600px] mx-auto space-y-5">
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
 
               {/* ── Left: Photo capture (3 cols) ── */}
