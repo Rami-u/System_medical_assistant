@@ -1,9 +1,4 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/DiaCheck-🩺-06b6d4?style=for-the-badge">
-    <img src="https://img.shields.io/badge/DiaCheck-🩺-0284c7?style=for-the-badge">
-  </picture>
-</p>
+<h1 align="center">DiaCheck</h1>
 
 <h3 align="center">AI-Powered Diabetes Management Platform</h3>
 
@@ -21,13 +16,81 @@
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
 </p>
 
+<p align="center">
+  <!-- TODO: Update these links once available (live demo, issue tracker, etc.) -->
+  <a href="#"><strong>Live Demo</strong></a> ·
+  <a href="https://github.com/0xOmarTaha/DiaCheck/issues">Report Bug</a> ·
+  <a href="docs/General/TEAM_DOCUMENTATION.md">Team Docs</a> ·
+  <a href="#team">Team</a>
+</p>
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Screenshots](#screenshots)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [ML Models](#ml-models)
+- [Database Schema](#database-schema)
+- [Security](#security)
+- [Frontend Routes](#frontend-routes)
+- [Documentation](#documentation)
+- [Deployment](#deployment)
+- [Team](#team)
+- [License](#license)
+
 ---
 
 ## Overview
 
-**DiaCheck** is a full-stack healthcare platform that combines **machine learning**, **computer vision**, and **cloud AI** to help patients manage diabetes and nutrition. Doctors get a real-time dashboard to monitor patients, write clinical notes, and respond to auto-generated health alerts.
+Diabetes management today is fragmented — patients track glucose in one app, log meals in another, and only discover complications like retinopathy after damage has progressed. **DiaCheck** unifies this into a single platform that combines **machine learning**, **computer vision**, and **cloud AI** to help patients manage diabetes and nutrition proactively, while giving doctors a real-time dashboard to monitor patients, write clinical notes, and respond to auto-generated health alerts.
 
 The system ships with **realistic demo data** (2 doctors, 5 patients, 30 days of glucose logs, meals, alerts, screenings, and AI conversations) that is automatically seeded on first startup.
+
+---
+
+## Screenshots
+
+<!-- TODO: Add screenshots below. Recommended: 1200px wide, dark-mode UI, no real patient data visible. -->
+
+<table>
+  <tr>
+    <td align="center"><b>Landing Page</b></td>
+    <td align="center"><b>Patient Dashboard</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/landing.png" width="420"></td>
+    <td><img src="docs/assets/patient-dashboard.png" width="420"></td>
+</tr>
+  <tr>
+    <td colspan="2" align="center"><b>Dish</b></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/assets/dish.jpg" width="420"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Meal Analysis (AI Vision)</b></td>
+    <td align="center"><b>Retinopathy Screening</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/Meal Log.png" width="420"></td>
+    <td><img src="docs/assets/retinopathy.png" width="420"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>AI Health Assistant</b></td>
+    <td align="center"><b>Doctor Dashboard</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/ai-chat.png" width="420"></td>
+    <td><img src="docs/assets/doctor-dashboard.png" width="420"></td>
+  </tr>
+</table>
 
 ### Key Features
 
@@ -49,21 +112,21 @@ The system ships with **realistic demo data** (2 doctors, 5 patients, 30 days of
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                   Frontend (React 18 + Vite 6)                   │
-│    TypeScript · Tailwind CSS 4 · Shadcn/ui · MUI · Recharts     │
+│    TypeScript · Tailwind CSS 4 · Shadcn/ui · MUI · Recharts      │
 │         Framer Motion · React Router 7 · Lucide Icons            │
 └──────────────────────────┬───────────────────────────────────────┘
                            │ REST API + SSE Streaming (JSON)
 ┌──────────────────────────▼───────────────────────────────────────┐
-│                     Backend (FastAPI 0.110+)                      │
-│                                                                   │
+│                     Backend (FastAPI 0.110+)                     │
+│                                                                  │
 │   api/ ───→ services/ ───→ models/ (SQLAlchemy 2.0)              │
-│                                                                   │
+│                                                                  │
 │   ┌────────────────┐  ┌────────────────┐  ┌───────────────────┐  │
 │   │  XGBoost       │  │  MobileNetV2   │  │  OpenRouter AI    │  │
-│   │  Screening     │  │  Nutrition CNN │  │  Gemini / GPT-OSS │  │
-│   │  Classifier    │  │  (fallback)    │  │  Vision & Chat    │  │
+│   │  Screening     │  │  Nutrition CNN │  │  GPT-OSS          │  │
+│   │  Classifier    │  │  (fallback)    │  │  Chat             │  │
 │   └────────────────┘  └────────────────┘  └───────────────────┘  │
-│                                                                   │
+│                                                                  │
 │   ┌──────────────────┐  ┌──────────────────────────────────────┐ │
 │   │  EfficientNet-B4 │  │  SlowAPI Rate Limiter                │ │
 │   │  Retinopathy     │  │  JWT Auth (access + refresh)         │ │
@@ -71,7 +134,7 @@ The system ships with **realistic demo data** (2 doctors, 5 patients, 30 days of
 │   └──────────────────┘  └──────────────────────────────────────┘ │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
-                   ┌───────▼────────┐
+                   ┌───────▼──────────┐ 
                    │  SQLite / MySQL  │
                    │   21 tables      │
                    └──────────────────┘
@@ -92,7 +155,8 @@ The system ships with **realistic demo data** (2 doctors, 5 patients, 30 days of
 | ML — Screening | XGBoost, Scikit-learn (joblib) |
 | ML — Nutrition | PyTorch, MobileNetV2 |
 | ML — Retinopathy | PyTorch, EfficientNet-B4 |
-| Cloud AI | OpenRouter API (Gemini, GPT-OSS) |
+| Cloud AI | OpenRouter API (GPT-OSS) |
+| Cloud AI | Nvidia API (Nemotron) |
 | Rate Limiting | SlowAPI |
 | Database | SQLite (dev) / MySQL (prod) |
 
@@ -255,6 +319,7 @@ The system ships with **realistic demo data** (2 doctors, 5 patients, 30 days of
 | Python | 3.11+ |
 | Node.js | 18+ |
 | OpenRouter API Key | [Free tier available](https://openrouter.ai/) |
+| Nvidia API Key | [Free tier available](https://build.nvidia.com/) |
 
 ### Backend Setup
 
@@ -328,9 +393,8 @@ REFRESH_TOKEN_EXPIRE_DAYS=7
 # OpenRouter AI
 OPENROUTER_API_KEY=your-openrouter-api-key
 OPENROUTER_MODEL=openai/gpt-oss-120b:free
-OPENROUTER_VISION_MODEL=google/gemma-4-31b-it:free
 
-# NVIDIA (optional — fallback AI provider)
+# NVIDIA (For vision models)
 NVIDIA_API_KEY=your-nvidia-api-key
 
 # Doctor Registration Key
@@ -429,13 +493,34 @@ Full interactive documentation is available at `/docs` (Swagger UI) and `/redoc`
 
 ### Diabetes Screening — XGBoost
 
+**Datasets**
+
+| | Simple Model | Advanced Model |
+|---|---|---|
+| **Dataset** | Diabetes Risk Dataset | Diabetes Prediction Dataset |
+| **Source** | [Kaggle (smayanj)](https://www.kaggle.com/) | Kaggle |
+| **Type** | Synthetic tabular data | Real-world tabular data |
+| **Size** | 12,000 rows | 100,000 rows → balanced to 20,000 rows (removed 80,000 non-diabetic samples) |
+| **Features** | age (20–80), bmi (15–45), glucose_level (60–200), physical_activity_level, family_history, smoker | gender, age, hypertension, heart_disease, smoking_history, bmi, HbA1c_level, blood_glucose_level |
+| **Preprocessing** | Label encoding, 80/20 stratified split, no missing values | Label encoding, StandardScaler, 80/20 stratified split, no missing values |
+
+
+**Pipeline:** Raw Data Collection → Data Cleaning & Validation → Train/Test Split (80/20) → Feature Engineering & Encoding → Model Training (XGBoost) → Model Evaluation & Deployment
+
+**Model Comparison (Advanced Model, Test Set)**
+
+| Model | Accuracy | Precision | Recall | ROC-AUC |
+|-------|----------|-----------|--------|---------|
+| **XGBoost** ✅ | **0.9145** | **0.8948** | **0.9053** | **0.9796** |
+| Random Forest | 0.9073 | 0.8870 | 0.8959 | 0.9756 |
+| Logistic Regression | 0.8803 | 0.8428 | 0.8829 | 0.9628 |
+
 | Aspect | Detail |
 |--------|--------|
 | **Models** | `ml/screening/advanced_model.pkl`, `simple_model.pkl`, `full_pipeline.pkl` |
 | **Type** | XGBoost binary classifier |
-| **Features** | Gender, age, hypertension, heart disease, smoking history, BMI, HbA1c, blood glucose |
 | **Output** | `Diabetic` / `Not Diabetic` |
-| **Simple Mode** | 6 user-facing questions mapped to 8 model features |
+| **Simple Mode** | 5 user-facing questions mapped to model features |
 | **Advanced Mode** | 8 clinical questions with direct feature mapping |
 
 ### Nutrition Analysis — Hybrid Pipeline
@@ -447,7 +532,7 @@ Upload Image
      │
      ├──→ MobileNetV2 CNN (local)  ──→ calories, carbs, protein, fat
      │
-     └──→ nemotron (via Nvidia) ──→ food names, portions, macros
+     └──→ Nemotron (via Nvidia) ──→ food names, portions, macros
                │
                └──→ Merged response
 ```
@@ -458,10 +543,61 @@ Upload Image
 | API unavailable | CNN results only (fully offline capable) |
 | CNN fails | API results only |
 
+**Dataset**
+
 | Aspect | Detail |
 |--------|--------|
-| **Model** | `ml/nutrition/nutrition_cnn.pkl` |
-| **Architecture** | MobileNetV2 (transfer learning) |
+| **Dataset** | Nutrition5K |
+| **Images** | 4,770 |
+| **Input Size** | 224×224 RGB |
+| **Normalization** | Z-score |
+| **Task** | Regression — 4 nutritional values |
+
+**Model Architecture**
+
+```
+Food Image (224×224 RGB)
+        │
+        ▼
+  MobileNetV2 Backbone
+        │
+        ▼
+  Global Average Pooling (7×7×1280 → 1×1280)
+        │
+        ▼
+  Regression Head (Fully Connected)
+        │
+        ▼
+  Nutrition Prediction (Denormalized)
+        │
+        ▼
+  Calories (kcal) · Fat (g) · Carbs (g) · Protein (g)
+```
+
+**Two-Phase Training Strategy**
+
+| | Phase 1 — Frozen Backbone | Phase 2 — Fine-Tuning |
+|---|---|---|
+| **Layers** | Backbone frozen, regression head trained | All layers unfrozen |
+| **Epochs** | 1–20 | 21–50 |
+| **Learning Rate** | 0.001 | 1e-5 |
+
+A lower learning rate in phase 2 keeps fine-tuning stable and improves generalization.
+
+| Aspect | Detail |
+|--------|--------|
+| **Model** | `ml/nutrition/nutrition_cnn.pkl` (~12 MB — model + scalers) |
+| **Checkpoint** | `best_checkpoint.pth` (~35 MB — best weights) |
+| **Architecture** | MobileNetV2 (transfer learning), 3,046,020 parameters |
+| **Optimizer** | AdamW |
+| **Loss** | MSE + 0.5 × MAE |
+| **Batch Size** | 32 |
+| **Gradient Clip Norm** | 1.0 |
+| **Precision** | Mixed precision (FP16 / AMP) |
+| **Device** | CUDA (GPU) |
+| **Early Stopping** | Patience = 10 |
+| **Best Epoch** | 45 / 50 |
+| **Best Validation Loss** | **0.9687** |
 | **Output** | Calories, carbohydrates, protein, fat |
 
 ### Retinopathy Detection — EfficientNet-B4
@@ -490,25 +626,29 @@ Upload Image
 
 ## Database Schema
 
-```
-User ─── Role (many-to-many via user_roles)
-  │
-  ├── Patient ─── GlucoseLog
-  │            ─── MealLog ─── MealDetectedItem
-  │            ─── Screening ─── ScreeningAnswer
-  │            ─── Alert
-  │            ─── HealthPreferences
-  │            ─── AiConversation ─── AiMessage
-  │
-  └── Doctor ─── ClinicalNote
-       │
-       └── Patient (many-to-many via doctor_patient)
+A normalized, transaction-safe relational schema organized into 5 core domains.
 
-Lookups: LkDiabetesType, LkSpecialization, ScreeningType, Question
-Audit:   AuditLog
-```
+| | |
+|---|---|
+| **Total Tables** | 21 |
+| **Core Domains** | 5 |
+| **Foreign Keys** | 30+ |
+| **Backend Stack** | SQLAlchemy, Pydantic |
+| **Architecture** | Relational, normalized, audit-ready |
 
-**21 tables** including association tables and lookup tables.
+| Domain | Tables |
+|--------|--------|
+| **01 — Identity & Access** | Users, Roles, User Roles, Audit Logs |
+| **02 — Healthcare Profiles** | Patients, Doctors, Doctor Assignments, Health Preferences |
+| **03 — Monitoring System** | Glucose Logs, Meal Logs, Food Item Analysis, Alerts |
+| **04 — Screening Engine** | Screening Types, Questions, Answers, Results |
+| **05 — Clinical System** | Clinical Notes, Risk Assessment, Patient Follow-up |
+| **06 — AI Assistant** | Conversations, Messages, Context History |
+
+<!-- TODO: Add the physical schema diagram (entity-relationship diagram) here -->
+<p align="center">
+  <img src="docs\assets\db-schema.jpg" width="900" alt="DiaCheck Physical Database Schema">
+</p>
 
 ---
 
@@ -572,6 +712,22 @@ cd frontend && npm run build
 # MySQL — update DATABASE_URL in .env
 DATABASE_URL=mysql+pymysql://user:password@host:3306/diacheck
 ```
+
+---
+
+## Team
+
+DiaCheck is the graduation project of an 11-member team at the Faculty of Artificial Intelligence, Delta University for Science and Technology.
+
+| Track | Members |
+|-------|---------|
+| **Team Lead** | Omar Taha |
+| **Data Preparation** | Abdallah Abdelhameed |
+| **AI** | Me, Mohamed Wagde, Ismail Becher |
+| **Backend** | Rami Mohamed, Mohamed Khafagy, Mohamed Elsayed |
+| **Frontend** | Ahmed Hammad, Mamdouh Abdeen |
+| **Database** | Mahmoud Elshafey |
+| **Security** | Mohamed Elgawish |
 
 ---
 
